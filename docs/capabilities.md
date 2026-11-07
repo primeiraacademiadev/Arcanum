@@ -84,13 +84,16 @@ Execution data lives in a separate **logical resolution domain**, not necessaril
 ```csharp
 public sealed record ProcessResult<T>(T? Data, string Intention);
 
-public sealed class ClassifyAuditProcess(IAuditClassifier classifier)
+public sealed class ClassifyAuditProcess(
+    IAuditClassifier classifier,
+    ILogger<ClassifyAuditProcess> logger)
 {
     public async ValueTask<ProcessResult<ClassifiedAuditEvent>> ExecuteAsync(
-        [FromCapabilityData("incoming")] IncomingAuditEvent incoming,
-        [FromCapabilityData("producer")] ProducerIdentity producer,
+        IncomingAuditEvent incoming,
+        ProducerIdentity producer,
         CancellationToken cancellationToken)
     {
+        logger.LogDebug("Classifying an incoming audit event");
         var classified = await classifier.ClassifyAsync(
             incoming, producer, cancellationToken);
         return new(classified, "classified");
@@ -101,6 +104,26 @@ public sealed class ClassifyAuditProcess(IAuditClassifier classifier)
 Accept one unambiguous `Execute` (sync `ProcessResult<T>`) **or** `ExecuteAsync` (`Task/ValueTask<ProcessResult<T>>`). Validate contracts on startup and cache invokers. The DataResolver binds parameters by type and optional key/name (`[FromCapabilityData("incoming")]`), with errors for missing/ambiguous inputs. CancellationToken is supplied by the runtime. Native Microsoft DI does not automatically bind arbitrary method arguments.
 
 The Process returns **data + intention**. DataResolver persists named typed output **before** CapabilityResolver follows the current node's intention edge. The Process does not know its next node.
+
+### Process discovery and implicit data injection
+
+There is **no `IProcess` marker interface**. Trusted assemblies explicitly
+registered by a module are scanned for concrete classes with names ending in
+`Process` and a public `Execute` or `ExecuteAsync` method. At startup the
+framework validates the method contracts and builds an invocation descriptor.
+
+Infrastructure dependencies (such as `ILogger<T>`, repositories and HTTP
+clients) are injected into the Process constructor by the Host DI provider.
+Execution objects are supplied to `Execute`/`ExecuteAsync` by the DataResolver.
+**`[FromCapabilityData]` is optional** when the argument type has precisely
+one matching datum; when there are multiple matches, use
+`[FromCapabilityData("key")]` to select explicitly, with an error on
+missing/ambiguous data rather than an arbitrary choice.
+
+Classes are grouped by responsibility, one top-level class per file:
+`Arcanum.Framework/{Abstractions,Models,Definitions,Resolution,Hosting,Configuration,Exceptions}`
+and `Arcanum.Demo.Api/{Processes,Models,Services}`. Existing CLR namespaces
+remain stable, so folder refactoring does not break versioned graph references.
 
 ### Intentions and reserved directives
 
