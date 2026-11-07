@@ -111,11 +111,11 @@ The Process returns **data + intention**. DataResolver persists named typed outp
 
 ## Bounded graph navigation — mandatory protection
 
-**Count Process executions / visited nodes, not only unique paths.** A loop can revisit the same node without increasing distinct paths. `maxSteps` is a positive integer defined for each Capability (with a conservative configurable framework default, candidate **100**, and a host-configurable upper bound).
+**Count Process executions / visited nodes, not only unique paths.** A loop can revisit the same node without increasing distinct paths. `maxSteps` is an **optional positive integer override on each Capability**. The framework provides a configurable `CapabilityOptions.DefaultMaxSteps` (initial default **100**). The effective limit is `Capability.MaxSteps ?? CapabilityOptions.DefaultMaxSteps`. A host may additionally configure an upper bound as a separate safety policy, but an upper-bound rule is **not yet required for V1**.
 
-Invariant for `maxSteps = N`: at most **N Process invocations** may start. Before starting Process invocation `N+1`, throw `CapabilityExecutionLimitExceededException`, containing sanitized diagnostics such as Capability ID, version, limit and next Process name. The trace records transitions up to the limit without logging sensitive data. A normal terminal after exactly N calls is allowed.
+Invariant for the **effective** limit `N`: at most **N Process invocations** may start. Before starting Process invocation `N+1`, throw `CapabilityExecutionLimitExceededException`, containing sanitized diagnostics such as Capability ID, version, limit and next Process name. The trace records transitions up to the limit without logging sensitive data. A normal terminal after exactly N calls is allowed.
 
-Applies also if a Process routes to itself. Reject invalid/zero/negative limits at startup. Use cancellation/timeout separately to guard a single long-running or blocked Process; the step counter only protects navigation.
+Applies also if a Process routes to itself. Reject invalid/zero/negative overrides and framework defaults at startup; a missing override is valid. Use cancellation/timeout separately to guard a single long-running or blocked Process; the step counter only protects navigation.
 
 Limit-exceeded is a runtime failure, **not** a business intention and **not** an automatic retry. It does not magically reverse previously committed writes: the Unit of Work/transaction boundaries must be explicit, and side-effecting Processes must be idempotent where re-execution is possible. Nested Capabilities can receive their own budgets; a global execution budget across nested invocations is future design if such composition is introduced.
 
@@ -126,10 +126,11 @@ plan = CapabilityCatalog.GetValidated(name, version)
 resources = current HTTP request scope OR new worker/message scope
 data = DataResolver.CreateExecutionScope(input)
 steps = 0
+maxSteps = plan.MaxSteps ?? frameworkOptions.DefaultMaxSteps
 node = plan.Graph.Entry
 
 while node is Process:
-    if steps >= plan.MaxSteps:
+    if steps >= maxSteps:
         throw CapabilityExecutionLimitExceededException(...)
     steps++
     process = ProcessResolver.Resolve(node, resources)
