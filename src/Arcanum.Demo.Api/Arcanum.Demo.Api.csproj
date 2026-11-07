@@ -3,6 +3,6 @@
     <ProjectReference Include="../Arcanum.Framework/Arcanum.Framework.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="capabilities/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="capabilities/*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
