@@ -1,97 +1,85 @@
-# Arcanum — Capabilities, Processes and graph execution
+# Arcanum — Capabilities, Processes and Graph Runtime
 
-Status: **design proposal**, refined 2026-11-07. Used for Audit Concentrator V1; the framework API and JSON schema remain subject to a small executable spike.
+Status: **design proposal** · 2026-11-07. Runtime implementation and JSON schema must be validated by a small executable spike.
 
-## Objective and rationale
+## Design principles
 
-A `Capability` is a versioned, executable description of a business flow. It belongs in the **same source solution** as its Process classes, so CI validates each graph with the code it invokes. It must also serve as **living functional documentation**: a human or an AI development agent should understand what a capability does and how execution proceeds without needing to open every Process implementation.
+Arcanum describes a Capability as a versioned executable **process graph** in the same solution as the .NET code, to make AI-assisted development traceable and understandable.
 
-- **Execution identity**: the full CLR type name (namespace + class name), not a separately maintained alias.
-- **Presentation**: `displayName` and optional `description` communicate business meaning; they are not identity keys.
-- **Node identity in V1**: the Process full type name, provided the type occurs **once per Capability graph**. A repeated invocation of the same Process will later require an explicit node-instance `id`, or another deliberate extension. Do not allow implicit duplicate nodes.
-- **Edges**: `on` maps a Process-returned **intention** to the full type name of the next Process, or to a reserved `@` directive.
-- **Source consistency**: graph JSON and implementation version together; rename/namespace changes to a Process must update all graph references in the same PR.
+- **Process identity**: CLR `Type.FullName` (namespace + class), without an extra business alias or mandatory `[Process]` attribute.
+- **Presentation**: `displayName` (required) and `description` (recommended) explain the intended behavior of each Process and Capability.
+- **Process catalog vs graph**: define Processes/metadata once; define entry and intention-driven connections separately. Avoid verbose explicit edge objects.
+- **Repeated execution**: Process instances must hold no cross-execution business state. The same Process may be visited multiple times during graph traversal, including in cycles. A Process class name acts as a **graph node key** with one transition table per key; independent nodes with different transitions but the same implementation would require a separate occurrence identity in the future.
+- **Safety**: every invocation has a bounded `maxSteps` counter that prevents endless navigation.
+- **Two-way development**: code can generate Process metadata/catalog; a process graph can scaffold missing Process classes/contracts/tests. Graph remains authority for *connections*, implementation for *behavior*.
+- **One delivery unit**: graph JSON and corresponding .NET implementation are versioned/tested together in the monorepo. No arbitrary code loading from JSON.
 
-## Proposed JSON — first executable graph
+## Example JSON — Processes separated from graph
 
 ```json
 {
   "name": "arca.audit.publish",
   "displayName": "Publicação de eventos de auditoria",
-  "description": "Valida, classifica e persiste eventos recebidos de produtores autorizados.",
+  "description": "Valida, classifica e regista eventos enviados por produtores autorizados.",
   "version": 1,
-  "entry": "Arcanum.Arca.Processes.ValidateAuditProcess",
-  "nodes": [
-    {
-      "process": "Arcanum.Arca.Processes.ValidateAuditProcess",
-      "displayName": "Validar evento recebido",
-      "description": "Verifica o contrato e os campos obrigatórios.",
-      "saveResultAs": "validation",
-      "on": {
+  "maxSteps": 100,
+  "processes": {
+    "Arcanum.Arca.Processes.ValidateAuditProcess": {
+      "displayName": "Validar evento",
+      "description": "Verifica o contrato e os dados obrigatórios."
+    },
+    "Arcanum.Arca.Processes.ClassifyAuditProcess": {
+      "displayName": "Classificar evento",
+      "description": "Resolve o nível de acesso do evento e dos detalhes."
+    },
+    "Arcanum.Arca.Processes.PersistAuditProcess": {
+      "displayName": "Persistir evento",
+      "description": "Regista o evento de forma transacional e idempotente."
+    }
+  },
+  "graph": {
+    "entry": "Arcanum.Arca.Processes.ValidateAuditProcess",
+    "transitions": {
+      "Arcanum.Arca.Processes.ValidateAuditProcess": {
         "valid": "Arcanum.Arca.Processes.ClassifyAuditProcess",
         "invalid": "@stop"
-      }
-    },
-    {
-      "process": "Arcanum.Arca.Processes.ClassifyAuditProcess",
-      "displayName": "Determinar classificação",
-      "description": "Resolve o LoA do evento e dos detalhes segundo as regras do Concentrator.",
-      "saveResultAs": "classification",
-      "on": {
+      },
+      "Arcanum.Arca.Processes.ClassifyAuditProcess": {
         "classified": "Arcanum.Arca.Processes.PersistAuditProcess"
-      }
-    },
-    {
-      "process": "Arcanum.Arca.Processes.PersistAuditProcess",
-      "displayName": "Persistir evento",
-      "description": "Guarda o evento e os detalhes de forma transacional e idempotente.",
-      "saveResultAs": "receipt",
-      "on": {
+      },
+      "Arcanum.Arca.Processes.PersistAuditProcess": {
         "stored": "@complete"
       }
     }
-  ]
+  }
 }
 ```
 
-This **illustrative fragment** intentionally omits producer authorization, idempotency branching and detailed error outcomes for readability. The actual ingest capability must cover those requirements before implementation is complete.
+This is an **illustrative fragment**; actual audit ingestion also needs producer authentication, deduplication, conflict branches and integration tests. A compact form or generated Process metadata may reduce JSON duplication later.
 
-The `on` dictionary represents outgoing **edges** of the node: intention → target Process identity. A future graphical editor may normalize it to explicit edges for drawing, without changing execution semantics. There is no extra mapping from a symbolic logical name to a Process CLR class.
+### Identity, edges and presentation
 
-### Graph display and AI legibility
+- The **key in `processes`** is the technical Process class name.
+- The **key in `graph.transitions`** is the current Process class; each intention maps to the next class or a reserved directive.
+- A Process can occur repeatedly **through navigation** (e.g. a loop returning to the same class); execution count is not part of the class identity.
+- `displayName` provides the human-oriented label shown in graph diagrams; the class name remains available in technical details.
+- If a future Capability truly needs two *different transition maps* for two occurrences of the same class, introduce an optional occurrence ID then; this is not a barrier to repeated execution now.
 
-`displayName` is required for the Capability and every node. `description` is recommended as a short, **behavioral statement**, not a mechanical restatement of the class name. The graph can therefore explain:
-- its overall purpose;
-- what each activity contributes;
-- which intentions produce which transitions and terminal results;
-- which source class implements each activity.
+## Resolvers
 
-A graphical renderer should show **displayName**, intention labels and links by default, and expose the full type name and description in details. Changes to labels/descriptions are reviewed with functional changes, but do not change technical node identity. Consider i18n later; do not overload the display name with stable codes.
+| Component | Responsibilities |
+| --- | --- |
+| `CapabilityResolver` | Load validated immutable graph plan, track current node and per-invocation step budget, execute intentions/transitions, return Capability result and tracing |
+| `ProcessResolver` | Map trusted `Type.FullName` to CLR type in explicitly registered assemblies, instantiate via the current Host DI scope, cache method invocation descriptors |
+| `DataResolver` | Bind named typed execution data to `Execute`/`ExecuteAsync` arguments and store typed Process results in a per-invocation DataScope |
 
-## Process identification and registration
+### Execution and resource scopes
 
-The Process identifier is `Type.FullName` from the assemblies explicitly registered by a Tessera module. V1 does **not require** `[Process("business.alias")]` or a manual logical-id-to-type correlation. A `ProcessCatalog` is still useful as a trusted **technical index** from full name to `Type` and compiled execution descriptor.
+Host infrastructure lives in **one .NET DI root**, with an appropriate resource scope per invocation. For HTTP, normally use `HttpContext.RequestServices`; for Workers, create a new scope per message. All Processes in one Capability execution use the same scope for Unit of Work consistency.
 
-- Scan **only explicit trusted assemblies**; no arbitrary JSON-directed assembly loading or type activation.
-- Reject duplicate type names from different assemblies, unknown Processes, unsupported methods and invalid data contracts on startup/CI.
-- The same Process may appear in multiple Capabilities, with different `displayName` values appropriate to their contexts.
-- If future independently deployed/persisted graph versions require stable external identities, add that abstraction only with a demonstrated need.
-- Distinguish graph node identity from **Process implementation type** if repeated instances become necessary; don't silently identify two occurrences as the same node.
+Execution data lives in a separate **logical resolution domain**, not necessarily another `IServiceProvider`. DataScope is unique to the invocation and thread/concurrency-safe by isolation. Avoid capturing invocation state in singleton Process instances. A stateless Process may still have scoped repository dependencies and therefore must be constructed/resolved with compatible lifetime.
 
-## Resolver responsibilities
-
-| Component | Owns | Does not own |
-| --- | --- | --- |
-| CapabilityResolver | Validated graph plan; current node; intention → edge; terminal result; execution limits and trace | Building infrastructure services or reading HTTP-specific codes |
-| ProcessResolver | Trusted type catalog; host-scoped object creation via DI; validated `Execute` method descriptor/invoker | Choosing next node, binding business inputs |
-| DataResolver | Per-invocation typed data registry; binding `Execute` parameters; storing typed outputs by name and type | Constructor dependencies or graph navigation |
-
-The architecture uses **two resolution contexts** rather than automatically creating two root service containers:
-
-1. **Resource scope** from the Host DI (`HttpContext.RequestServices` for HTTP or a per-message scope for Workers). All Processes within a Capability execution share that scope for UoW/repository coherence.
-2. **Data scope** created for each Capability execution. It holds authenticated inputs, intermediate outputs, metadata and typed objects; no cross-request state is shared.
-
-## Process execution contract (proposed)
+### Process method contract (proposed)
 
 ```csharp
 public sealed record ProcessResult<T>(T? Data, string Intention);
@@ -101,47 +89,93 @@ public sealed class ClassifyAuditProcess(IAuditClassifier classifier)
     public async ValueTask<ProcessResult<ClassifiedAuditEvent>> ExecuteAsync(
         [FromCapabilityData("incoming")] IncomingAuditEvent incoming,
         [FromCapabilityData("producer")] ProducerIdentity producer,
-        CancellationToken ct)
+        CancellationToken cancellationToken)
     {
-        var classified = await classifier.ClassifyAsync(incoming, producer, ct);
+        var classified = await classifier.ClassifyAsync(
+            incoming, producer, cancellationToken);
         return new(classified, "classified");
     }
 }
 ```
 
-- Resources are injected into Process constructors by the existing Host DI provider.
-- Execution data are injected into **method parameters** by Arcanum's DataResolver. Native Microsoft DI does not implement arbitrary method-level data binding automatically.
-- Accept one unambiguous `Execute` returning `ProcessResult<T>`, or `ExecuteAsync` returning `Task/ValueTask<ProcessResult<T>>`; validation rejects ambiguous overloads. The runtime normalizes both to a cached async invoker.
-- Bind data by **typed key + name**. Type-only binding is acceptable only when unambiguous; use `[FromCapabilityData("name")]` otherwise. CancellationToken comes from execution runtime.
-- The Process returns `Data` and an **intention**. After execution, DataResolver stores the result under `saveResultAs` **before** CapabilityResolver resolves the outgoing edge.
+Accept one unambiguous `Execute` (sync `ProcessResult<T>`) **or** `ExecuteAsync` (`Task/ValueTask<ProcessResult<T>>`). Validate contracts on startup and cache invokers. The DataResolver binds parameters by type and optional key/name (`[FromCapabilityData("incoming")]`), with errors for missing/ambiguous inputs. CancellationToken is supplied by the runtime. Native Microsoft DI does not automatically bind arbitrary method arguments.
 
-### Intention and terminal directives
+The Process returns **data + intention**. DataResolver persists named typed output **before** CapabilityResolver follows the current node's intention edge. The Process does not know its next node.
 
-- Ordinary intentions are names local to the current Process node, e.g. `valid`, `invalid`, `duplicate`, `classified`.
-- A target beginning with `@` is a reserved **graph directive**, not an ordinary business intention. Candidate targets: `@next` (explicit sequential continuation), `@complete` (successful terminal), `@stop` (terminal with current functional result) and `@fail` (failure). Reserve `@retry` only for later deliberate retry design.
-- `.` is a namespace separator, e.g. `arca.audit.publish.duplicate`, used if capabilities or external observers need qualified intentions; reusable Process classes need not know their caller's Capability name.
-- Every returned intention must match a declared outgoing edge of its node; unknown intentions fail safely. Do not fall through silently.
-- Unexpected exceptions are not casually converted to business intentions; preserve diagnostics and avoid exposing sensitive data.
+### Intentions and reserved directives
 
-## Runtime sequence
+- Local Process intentions: `valid`, `invalid`, `duplicate`, `classified`; lookup is relative to the current Process's transition map.
+- Reserved graph targets prefixed by `@`: proposed `@next`, `@complete`, `@stop`, `@fail`; `@retry` is reserved and unsupported in V1. These are **directives at the transition destination**, not general business intentions emitted by Processes.
+- The dot `.` qualifies names, e.g. `arca.audit.publish.duplicate`, when needed by observers or inter-Capability contracts, without coupling a reused Process to its owner.
+- Unknown intentions/unmapped edges fail safely and are observed, never silently ignored.
 
-1. On host startup, parse JSON, resolve all Process types and method contracts, validate all node targets, unique names, output bindings, reachability and unsupported graph structures.
-2. Obtain the correct Host resource scope and an isolated DataScope for one invocation.
-3. Resolve the current Process by its `Type.FullName` through ProcessResolver; bind the Execute parameters from DataResolver.
-4. Invoke the Process and obtain `ProcessResult<T>`.
-5. Validate/store typed output as `saveResultAs`.
-6. Resolve the current node's `on[intention]` into another Process node or an `@` terminal directive.
-7. Record transition metadata and duration, then continue or return a transport-neutral Capability result.
+## Bounded graph navigation — mandatory protection
 
-Never log confidential data automatically. Do not retry operations with unguarded side effects. UoW/commit boundaries are explicit. V1 starts with deterministic, bounded, acyclic execution; parallelism, cycles, durable resumptions and a graphical editor remain future features. The complete graph definition and its version are immutable during a running invocation.
+**Count Process executions / visited nodes, not only unique paths.** A loop can revisit the same node without increasing distinct paths. `maxSteps` is a positive integer defined for each Capability (with a conservative configurable framework default, candidate **100**, and a host-configurable upper bound).
 
-## Container choice
+Invariant for `maxSteps = N`: at most **N Process invocations** may start. Before starting Process invocation `N+1`, throw `CapabilityExecutionLimitExceededException`, containing sanitized diagnostics such as Capability ID, version, limit and next Process name. The trace records transitions up to the limit without logging sensitive data. A normal terminal after exactly N calls is allowed.
 
-Native `Microsoft.Extensions.DependencyInjection` is the baseline for resource injection; evaluate Autofac and possibly DryIoc if advanced scopes materially simplify execution (#18). Neither constructor parameterized resolution nor scopes automatically bind arbitrary `Execute` data arguments. The DataResolver remains framework-owned regardless of container choice. No second independent root `IServiceProvider` by default.
+Applies also if a Process routes to itself. Reject invalid/zero/negative limits at startup. Use cancellation/timeout separately to guard a single long-running or blocked Process; the step counter only protects navigation.
 
-## Delivery and decision points
+Limit-exceeded is a runtime failure, **not** a business intention and **not** an automatic retry. It does not magically reverse previously committed writes: the Unit of Work/transaction boundaries must be explicit, and side-effecting Processes must be idempotent where re-execution is possible. Nested Capabilities can receive their own budgets; a global execution budget across nested invocations is future design if such composition is introduced.
 
-- #17: proof of ProcessResolver + DataResolver + CapabilityResolver over a small JSON graph, with a single branching intention and typed result handoff.
-- #15: future versioned graph authoring, validation and editor.
-- #18: DI container comparison.
-- Before freezing V1 contract: decide whether to permit repeated Process classes via optional node-instance IDs. For now **one occurrence per Capability** is an explicit constraint, not an accidental assumption.
+### Runtime outline
+
+```text
+plan = CapabilityCatalog.GetValidated(name, version)
+resources = current HTTP request scope OR new worker/message scope
+data = DataResolver.CreateExecutionScope(input)
+steps = 0
+node = plan.Graph.Entry
+
+while node is Process:
+    if steps >= plan.MaxSteps:
+        throw CapabilityExecutionLimitExceededException(...)
+    steps++
+    process = ProcessResolver.Resolve(node, resources)
+    args = DataResolver.Bind(process.ExecutionDescriptor, data)
+    (result, intention) = await ProcessResolver.Invoke(process, args)
+    DataResolver.Store(data, process.OutputKey, result)
+    node = plan.Graph.ResolveTransition(node, intention)
+    emit Process/transition telemetry
+
+return transportNeutralCapabilityResult
+```
+
+`saveResultAs` / output-key policy must be explicit to avoid collisions where loops revisit a Process. Define whether values are overwritten or retained as history, and which objects remain visible to subsequent steps, before implementation.
+
+## Bidirectional modeling, documentation and generation
+
+The model should be **bidirectional without claiming that code and graphs are independently complete sources of truth**.
+
+### Code → Process model and graph documentation
+
+1. Discover trusted Process classes and their `Execute` signatures, required data types, output types, and declared possible intentions (when available).
+2. Generate or validate the Process catalog, method bindings and human-readable documentation.
+3. Combine that catalog with **explicitly declared graph transitions** to render executable diagrams and produce reference documentation. Dependencies and signatures alone **cannot infer** the intended business flow.
+
+### Graph → code
+
+1. A designer/AI authors a Capability diagram/JSON, including named Processes, descriptions, expected inputs/outputs and possible intentions.
+2. A CLI/generator can scaffold *missing* CLR Process classes, method signatures, data contracts, tests and comments based on those declarations.
+3. AI/humans implement the actual behavior. The framework can verify names, signatures and declared intentions, but documentation consistency alone does not prove business correctness.
+4. Never silently overwrite hand-written Process logic. Regeneration must be non-destructive and show diffs/conflicts.
+
+### Consistency and source ownership
+
+- **Graph JSON is authoritative for control flow** (entry, intention edges, terminal outcomes, budgets).
+- **.NET Process classes are authoritative for executed behavior and method signatures**.
+- **Metadata** (`displayName`, `description`, declared intentions) should have one designated owner at a time (e.g. graph JSON for V1) and be checked for drift if mirrored.
+- A CI validator checks class references, signatures, input/output binding, target reachability, declared outcome mapping, safety budget, and generated/scaffolded artifact drift.
+- Future visual editor and formal two-way synchronization remain separate increments; start with metadata + basic scaffolding.
+
+## Candidate DI containers
+
+Baseline `Microsoft.Extensions.DependencyInjection` for resources, Arcanum DataResolver for Execute injection. Compare Autofac (and DryIoc if useful) with exactly the same scoped UoW, cancellation and concurrency tests before changing the default (#18). No second independent DI root is required by this model.
+
+## Delivery tracking
+
+- #17: initial executable CapabilityResolver, ProcessResolver, DataResolver; JSON graph/step limits; typed results and branching.
+- #15: future graph editor/graph-definition validation and advanced execution.
+- #18: DI container evaluation.
+- Separate issue: bidirectional catalog/code/doc scaffolding and consistency validation.
