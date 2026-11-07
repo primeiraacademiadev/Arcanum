@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace Arcanum.Framework;
 
 /// <summary>Marker for executable processes discoverable only in explicitly registered assemblies.</summary>
-public interface IProcess;
+public interface IProcess { }
 
 [AttributeUsage(AttributeTargets.Parameter)]
 public sealed class FromCapabilityDataAttribute(string name) : Attribute
@@ -66,11 +66,11 @@ public sealed record CapabilityExecutionResult(
     int Steps,
     object? Data);
 
-public class CapabilityDefinitionException(string message) : InvalidOperationException(message);
+public class CapabilityDefinitionException(string message) : InvalidOperationException(message) { }
 
-public class CapabilityDataException(string message) : InvalidOperationException(message);
+public class CapabilityDataException(string message) : InvalidOperationException(message) { }
 
-public class CapabilityTransitionException(string message) : InvalidOperationException(message);
+public class CapabilityTransitionException(string message) : InvalidOperationException(message) { }
 
 public sealed class CapabilityExecutionLimitExceededException(
     string capability, int version, string nextProcess, int limit)
