@@ -102,3 +102,96 @@ For HTTP request handling, the resolver may reuse the **existing request DI scop
 Build a linear four-step demo of `arca.audit.publish` with two inputs and one intermediate output injected into `ExecuteAsync`; one Process depends on an injected scoped repository. Verify concurrency isolation, scope disposal, cancellation, short-circuiting, missing data and startup validation. Only then finalize the Process interface and DI strategy.
 
 Tracking: #13 (incremental framework) and #15 (future graph runtime).
+
+
+## Design refinement — Intention-directed navigation (2026-11-07)
+
+**Proposal under review.** Every Process returns **data result + intention**. The resolver first registers the returned typed result in the per-invocation data scope and then resolves the intention against the current node's transitions. Process code does not call another Process, know its node ID or select a next class.
+
+Conceptual signature:
+
+```csharp
+public sealed record ProcessResult<T>(T? Data, string Intention);
+
+public ValueTask<ProcessResult<ValidationData>> ExecuteAsync(
+    [FromCapabilityData("incoming")] IncomingAuditEvent incoming,
+    CancellationToken ct);
+```
+
+The result is typed output data (including validation/rejection details), **not the control-flow selector**. Intention is the control-flow signal. A Process may return `valid`, `invalid` or `duplicate`; the graph owns their destination. Error details must be sanitized and differentiated from unexpected exceptions. Avoid converting every unhandled exception to an intention.
+
+### Example directed flow (candidate extension)
+
+```json
+{
+  "id": "arca.audit.publish",
+  "version": 1,
+  "entry": "validate",
+  "nodes": [
+    {
+      "id": "validate",
+      "process": "arca.audit.validate",
+      "saveResultAs": "validation",
+      "on": { "valid": "deduplicate", "invalid": "@stop" }
+    },
+    {
+      "id": "deduplicate",
+      "process": "arca.audit.deduplicate",
+      "saveResultAs": "deduplication",
+      "on": { "new": "classify", "duplicate": "@stop", "conflict": "@fail" }
+    },
+    {
+      "id": "classify",
+      "process": "arca.audit.classify",
+      "saveResultAs": "classified",
+      "on": { "classified": "persist" }
+    },
+    {
+      "id": "persist",
+      "process": "arca.audit.persist",
+      "saveResultAs": "receipt",
+      "on": { "stored": "@complete" }
+    }
+  ]
+}
+```
+
+This JSON is an **illustrative design**, not yet the accepted schema. V1 can begin with a linear node list and `@next` semantics; a one-branch proof is a small extension rather than a full graph engine.
+
+### Intention namespaces
+
+- **Local intentions**, e.g. `valid`, `duplicate`, `rejected`, are defined by reusable Process contracts; transition lookup is **relative to the current node**, preventing collisions across nodes.
+- **Reserved framework intentions**, candidate prefix `@`: `@next` (linear fall-through only), `@complete` (success terminal), `@stop` (terminal with returned domain result), `@fail` (terminal failure). `@retry` is *reserved for future use*, and must never blindly repeat side effects.
+- **Capability-qualified intentions**, e.g. `arca.audit.publish.duplicate`, are a future **qualified identifier** for external observation/routing. Prefer to **qualify at the resolver boundary**; do not force reusable Processes to hardcode their caller's Capability ID.
+
+The exact reserved names and outcome model are not final. Do not let arbitrary user-defined names impersonate reserved intentions. A transition must never be silently inferred when no mapping is present: reject invalid definitions at startup and fail safely if an unexpected intention appears.
+
+### Data scope and graph execution order
+
+1. Resolve Process instance from the host **resource scope** and bind its Execute inputs from per-invocation **data scope**.
+2. Invoke and obtain `ProcessResult<T>`.
+3. Validate and write the result to `saveResultAs` (type + name), with explicit overwrite/version rules.
+4. Resolve the intention using the **current node's** validated transition map.
+5. Record Process ID, Capability version, intention, transition and timing (without logging sensitive values).
+6. Move to the target node or conclude with explicit terminal semantics.
+
+For V1, disallow cycles and parallel branches; enforce max-node execution limits and UoW/side-effect invariants. Version the definition atomically so live executions use a stable plan.
+
+## Dependency injection candidates and decision criteria (2026-11-07)
+
+Retain **Microsoft.Extensions.DependencyInjection** as baseline; evaluate third-party containers when they demonstrably simplify the two-context model. Constructor injection remains standard host DI; arbitrary method-parameter binding remains an **Arcanum responsibility** even when a third-party container supports parameterized object creation.
+
+| Candidate | Main reason to test | Caveat |
+| --- | --- | --- |
+| Microsoft DI | Native IHost, common scopes, minimal dependency footprint | Cannot configure arbitrary child registrations on a per-invocation scope; needs DataScope binder |
+| Autofac | Nested lifetime scopes, local registrations, parameterized resolution and mature ASP.NET Core integration | Nested scoped service instances and UoW sharing require explicit lifecycle design; does not auto-bind arbitrary Execute methods |
+| DryIoc | Advanced resolution strategies and potential performance | Validate adapter compatibility and binding against current .NET host conventions |
+| Stashbox | Scope flexibility and Generic Host integration | Evaluate behavior against reference cases before adopting |
+| Lamar | Convention-based registrations and integration | No clear unique need yet |
+| LightInject | Feature-rich integration | No proven advantage on current contract |
+| Grace | Flexible composition | Not priority without specific need |
+| Simple Injector | Container validation / lifestyle diagnostics | Cross-wiring second container adds complexity; its documentation cautions against hidden method injection |
+
+**Required decision spike:** same capability definition, same scoped repository/UoW, concurrent invocations, cancellation, disposal and typed data injection on Microsoft DI vs Autofac; add DryIoc only if needed. Measure implementation complexity and semantics before throughput. **Do not create two independent root ServiceProviders by default**: two *resolution contracts* are enough until proven otherwise.
+
+Tracking: #17 for V1 and #15 for graph navigation; new DI evaluation issue to be linked.
