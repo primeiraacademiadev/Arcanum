@@ -68,17 +68,21 @@ Avoid building alternative implementations of facilities that .NET, OpenTelemetr
 
 Keep activity results **transport-neutral**. HTTP endpoints translate workflow outcomes to status codes/ProblemDetails. Worker consumers translate them to acknowledgement, retry or dead-letter behavior.
 
-### V1 linear execution
+### V1 linear execution: JSON Capabilities and Process classes
 
-For the prototype, assemble an ordered chain of activities with a typed scoped context and a `Next` delegate, consistent with the originally requested Chain-of-Responsibility pattern. The context may expose scoped `IServiceProvider`, but constructor-injected stable dependencies and typed state are preferred. Do not allow activities to write HTTP responses or publish Kafka acknowledgement directly.
+**Refined proposal (2026-11-07):** Declare Capabilities in versioned JSON. A `CapabilityResolver` executes the ordered list of registered Process implementations; Processes do **not** call `Next` or choose which Process executes next. This **supersedes the earlier activity-owned Next/Chain-of-Responsibility proposal** for business-flow orchestration; conventional transport middleware and around-execution behaviors may still use `Next`.
 
-Activity results should carry a semantic outcome code, e.g. `completed`, `invalid`, `duplicate`, `unauthorized`, `retryable_failure`. Define clear short-circuit rules, exception handling and local UoW boundaries. Side-effecting activities must not re-execute accidentally because of middleware retries.
+Each Process receives **resource dependencies through its constructor** (standard host DI scope) and **execution data objects as parameters to `ExecuteAsync`**, bound by an invocation-specific data resolver. These are two conceptual injection contexts, **not** necessarily two independent root `IServiceProvider` instances. Do not create duplicate DI roots as a default.
+
+Process outcomes are semantic (`completed`, `invalid`, `duplicate`, `unauthorized`, `retryable_failure`). Define short-circuit rules, exception handling, typed intermediate results and local UoW boundaries. Side-effecting Processes must not re-execute accidentally because of middleware retries.
+
+See [Capability model](capabilities.md) for the JSON, Process contract, data binding, resolution lifecycle, and future graph integration.
 
 Candidate publish activities: authenticate producer → validate contract → check idempotency → resolve effective event/detail classification → persist in UoW → commit → return durable ingestion result. Track each activity's own log/tracing scope. Reuse only where semantic responsibilities match.
 
 ## Future graph-directed workflow engine (design opportunity, **not V1**)
 
-Treat a workflow as a **versioned directed graph** of typed activities and transitions. Each activity returns a named outcome; the **engine**, not individual domain activities, chooses the next transition based on that outcome. Branches and conditional outcomes are modeled explicitly. A linear CoR is the simplest graph.
+Treat a Capability as a **versioned directed graph** of Process nodes and transitions. Each Process returns a named outcome; the **CapabilityResolver**, not a Process, chooses the next transition based on that outcome. Branches and conditional outcomes are modeled explicitly. The V1 sequential JSON array is the simplest graph.
 
 ```mermaid
 flowchart TD
