@@ -47,4 +47,4 @@ app.MapPost("/capabilities/{name}/execute",
 app.Run();
 
 // Kept public so an eventual integration test host can reference the entry point.
-public partial class Program;
+public partial class Program { }
