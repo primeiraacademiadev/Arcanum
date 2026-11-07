@@ -105,25 +105,69 @@ Accept one unambiguous `Execute` (sync `ProcessResult<T>`) **or** `ExecuteAsync`
 
 The Process returns **data + intention**. DataResolver persists named typed output **before** CapabilityResolver follows the current node's intention edge. The Process does not know its next node.
 
-### Process discovery and implicit data injection
+### Process registration, data bindings and named results
 
-There is **no `IProcess` marker interface**. Trusted assemblies explicitly
-registered by a module are scanned for concrete classes with names ending in
-`Process` and a public `Execute` or `ExecuteAsync` method. At startup the
-framework validates the method contracts and builds an invocation descriptor.
+The **Capability JSON catalog is the only list of executable Process classes**.
+On boot, the framework loads that JSON and resolves the referenced full CLR
+type names **only inside explicitly trusted assemblies**. Each referenced class
+must be public, concrete and have exactly one valid `Execute` or
+`ExecuteAsync` method. Its invocation descriptor is compiled at startup.
+**No `IProcess`, suffix convention or attribute is mandatory.** An optional
+`[Process]` class attribute exists for visual documentation only. Classes
+not referenced by JSON are not registered even if they have an Execute method.
 
-Infrastructure dependencies (such as `ILogger<T>`, repositories and HTTP
-clients) are injected into the Process constructor by the Host DI provider.
-Execution objects are supplied to `Execute`/`ExecuteAsync` by the DataResolver.
-**`[FromCapabilityData]` is optional** when the argument type has precisely
-one matching datum; when there are multiple matches, use
-`[FromCapabilityData("key")]` to select explicitly, with an error on
-missing/ambiguous data rather than an arbitrary choice.
+Resources including `ILogger<T>` are constructor-injected from the Host
+resource scope. Typed execution data bind to method parameters by **parameter
+name first**, falling back to the type when exactly one compatible value
+exists. `[FromCapabilityData("key")]` overrides this selection explicitly.
+
+A method may declare `[ReturnName("validated")]` to name the result saved in
+the execution DataScope; the Capability may override that name using
+`saveResultAs`. These names also resolve the declared terminal response.
+
+### Capability contracts — data conversion is not endpoint responsibility
+
+Each Capability JSON has a `contract` independent of the transport:
+
+```json
+{
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "final",
+        "type": "Arcanum.Demo.Api.CompletedData"
+      }
+    }
+  }
+}
+```
+
+- `inputs` declares typed, named execution objects; sources support `$`,
+  simple dotted JSON paths such as `$.payload`, and constant `default`
+  values used for initialization.
+- `responses` declares the name and type of the result delivered for each
+  terminal direction, preventing the endpoint from choosing arbitrary
+  intermediate data.
+- `CapabilityContractResolver` binds JSON into trusted typed inputs;
+  `CapabilityJsonDispatcher` starts execution; the generic HTTP adapter
+  translates terminal semantics into HTTP responses.
+- Declared input types must already occur in referenced Process signatures;
+  unknown types or invalid bindings are rejected. The HTTP adapter does not
+  instantiate arbitrary CLR types from untrusted strings.
+- Contract validation is currently structural/type oriented; it does not yet
+  provide all static dataflow analysis, arbitrary field transformations,
+  custom converters or endpoint-specific security policy enforcement.
 
 Classes are grouped by responsibility, one top-level class per file:
 `Arcanum.Framework/{Abstractions,Models,Definitions,Resolution,Hosting,Configuration,Exceptions}`
 and `Arcanum.Demo.Api/{Processes,Models,Services}`. Existing CLR namespaces
-remain stable, so folder refactoring does not break versioned graph references.
+remain stable so folder refactoring does not break graph references.
 
 ### Intentions and reserved directives
 

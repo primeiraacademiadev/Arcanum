@@ -11,13 +11,22 @@ dados nos métodos `Execute`/`ExecuteAsync`.
 - `src/Arcanum.Framework/` — definições, resolvers, modelos, exceções e registo no Host.
 - `src/Arcanum.Demo.Api/Processes/` — Processes de demonstração, um por ficheiro.
 - `src/Arcanum.Demo.Api/Models/` e `Services/` — contratos e serviços scoped da demo.
-- `src/Arcanum.Demo.Api/capabilities/` — três grafos de exemplo em JSON.
+- `src/Arcanum.Demo.Api/capabilities/` — grafos de exemplo em JSON.
 - `tests/Arcanum.Framework.Tests/` — testes de execução, DI, concorrência e limites.
 
-Não existe um marcador `IProcess`. A descoberta usa a convenção `*Process` nos
-assemblies explicitamente registados, com um `Execute`/`ExecuteAsync` válido.
-Os parâmetros do método são ligados pelo tipo quando o dado é único;
-`[FromCapabilityData("name")]` só é necessário em caso de ambiguidade.
+**O JSON da Capability determina quais as classes executáveis.** A framework
+resolve apenas os tipos aí declarados, exclusivamente nos assemblies autorizados,
+e exige um método `Execute` ou `ExecuteAsync`. Não há `IProcess`, sufixo
+obrigatório ou atributo de ativação. `[Process]` é opcional e apenas documental.
+
+O `DataResolver` utiliza primeiro o nome do parâmetro e, se necessário,
+uma correspondência inequívoca por tipo. `[FromCapabilityData("name")]`
+é um override. `[ReturnName("name")]` define o nome do resultado.
+
+Cada Capability define um `contract` declarativo: entradas tipadas provenientes
+de JSON ou defaults e respostas tipadas para os resultados terminais. O adaptador
+HTTP da framework cria os dados e devolve as respostas; `Program.cs` não faz
+conversões próprias da Capability.
 
 ```bash
 dotnet restore Arcanum.slnx

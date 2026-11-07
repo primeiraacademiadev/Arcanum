@@ -69,4 +69,40 @@ assert result["steps"] == 4, result
 assert result["data"]["count"] == 4, result
 PY
 
-echo "HTTP smoke succeeded: valid pipeline, invalid stop, bounded loop."
+curl --silent --show-error --fail \
+  --header 'Content-Type: application/json' \
+  --data '{"value":"custom"}' \
+  "$url/capabilities/demo.activity/execute" > "$response_file"
+
+python3 - "$response_file" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    result = json.load(stream)
+assert result["terminal"] == "@complete", result
+assert result["data"]["value"] == "custom", result
+PY
+
+curl --silent --show-error --fail \
+  --header 'Content-Type: application/json' \
+  --data '{"payload":{"value":"  nested  "}}' \
+  "$url/capabilities/demo.nested/execute" > "$response_file"
+
+python3 - "$response_file" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    result = json.load(stream)
+assert result["terminal"] == "@complete", result
+assert result["data"]["text"] == "NESTED", result
+PY
+
+status="$(curl --silent --show-error \
+  --output "$response_file" --write-out '%{http_code}' \
+  --header 'Content-Type: application/json' \
+  --data '{"value":"missing nested payload"}' \
+  "$url/capabilities/demo.nested/execute")"
+[ "$status" = "400" ] || { cat "$response_file"; exit 1; }
+
+echo "HTTP smoke succeeded: valid, invalid, loop, arbitrary Process name, nested contract, invalid contract."
+

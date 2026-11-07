@@ -31,8 +31,8 @@ public sealed class ProcessDescriptor
 
     public static ProcessDescriptor Create(Type type)
     {
-        if (!type.IsClass || type.IsAbstract || !typeof(IProcess).IsAssignableFrom(type))
-            throw new CapabilityDefinitionException($"'{type.FullName}' must be a concrete IProcess.");
+        if (!type.IsClass || type.IsAbstract || (!type.IsPublic && !type.IsNestedPublic))
+            throw new CapabilityDefinitionException($"'{type.FullName}' must be a public, concrete class.");
 
         var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m.Name is "Execute" or "ExecuteAsync")

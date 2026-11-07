@@ -216,12 +216,18 @@ public class CapabilityRuntimeTests
 
 
     [Fact]
-    public void Processes_are_discovered_by_IProcess_marker()
+    public void Only_JSON_declared_processes_are_registered()
     {
         using var provider = CreateProvider();
         var descriptor = provider.GetRequiredService<ProcessCatalog>()
             .Get(typeof(ValidateProcess).FullName!);
+
         Assert.Equal(typeof(ValidateProcess), descriptor.ProcessType);
+        Assert.Equal(typeof(EchoActivity), provider.GetRequiredService<ProcessCatalog>()
+            .Get(typeof(EchoActivity).FullName!).ProcessType);
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            provider.GetRequiredService<ProcessCatalog>()
+                .Get(typeof(UnlistedActivity).FullName!));
     }
 
     [Fact]
@@ -243,14 +249,16 @@ public class CapabilityRuntimeTests
 
 
     [Fact]
-    public void Process_marker_allows_arbitrary_class_names_and_rejects_accidental_classes()
+    public void Process_name_and_marker_are_unnecessary_for_valid_descriptor()
     {
         var catalog = new ProcessCatalog([typeof(Fixtures.UnconventionallyNamedActivity)]);
         Assert.Equal(typeof(Fixtures.UnconventionallyNamedActivity),
             catalog.Get(typeof(Fixtures.UnconventionallyNamedActivity).FullName!).ProcessType);
 
-        Assert.Throws<CapabilityDefinitionException>(() =>
-            ProcessDescriptor.Create(typeof(Fixtures.AccidentalProcess)));
+        // An ordinary class with Execute is valid in isolation; only a JSON graph
+        // and a trusted assembly registration can make it executable by the host.
+        var descriptor = ProcessDescriptor.Create(typeof(Fixtures.AccidentalProcess));
+        Assert.Equal(typeof(Fixtures.AccidentalProcess), descriptor.ProcessType);
     }
 
     [Fact]
@@ -351,6 +359,21 @@ public class CapabilityRuntimeTests
         definition.Contract.Responses["@complete"].Type = typeof(ValidationData).FullName!;
         Assert.Throws<CapabilityDefinitionException>(() =>
             new CapabilityCatalog([definition], processes, new CapabilityOptions()));
+    }
+
+    [Fact]
+    public async Task Class_without_interface_suffix_or_attribute_runs_when_declared_in_JSON()
+    {
+        using var provider = CreateProvider();
+        using var scope = provider.CreateScope();
+        using var payload = JsonDocument.Parse("""{"value":"custom"}""");
+
+        var result = await provider.GetRequiredService<CapabilityJsonDispatcher>()
+            .ExecuteAsync("demo.activity", payload.RootElement, scope.ServiceProvider);
+
+        Assert.Equal("@complete", result.Terminal);
+        Assert.Equal("custom", Assert.IsType<DemoInput>(result.Data).Value);
+        Assert.Equal(1, result.Steps);
     }
 
     [Fact]

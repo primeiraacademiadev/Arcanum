@@ -2,7 +2,7 @@ using Arcanum.Framework;
 
 namespace Arcanum.Demo.Api;
 
-public sealed class FinishProcess(IExecutionProbe probe) : IProcess
+public sealed class FinishProcess(IExecutionProbe probe)
 {
     [ReturnName("final")]
     public Task<ProcessResult<CompletedData>> ExecuteAsync(

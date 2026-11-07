@@ -3,7 +3,8 @@ using Arcanum.Framework;
 
 namespace Arcanum.Demo.Api;
 
-public sealed class ValidateProcess(IExecutionProbe probe, ILogger<ValidateProcess> logger) : IProcess
+[Process]
+public sealed class ValidateProcess(IExecutionProbe probe, ILogger<ValidateProcess> logger)
 {
     [ReturnName("validated")]
     public ProcessResult<ValidationData> Execute(

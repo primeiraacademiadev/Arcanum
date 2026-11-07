@@ -39,8 +39,8 @@ This graph calls the same stateless `CounterProcess` repeatedly and throws `Capa
 
 - JSON Capability catalog with distinct `processes` metadata and compact graph `entry` / `transitions`.
 - Full CLR Process names as identities, no manual aliases or attribute registration.
-- `displayName`, `description` and `saveResultAs` metadata for readable execution and typed data binding.
-- `ProcessResolver`: discovered/whitelisted `IProcess` classes in explicitly registered assemblies; constructor injection from the existing resource scope.
+- `displayName`/`description` metadata, `[ReturnName]` for output naming and optional `saveResultAs` overrides.
+- `ProcessResolver`: classes explicitly referenced by Capability JSON, resolved only inside trusted assemblies; constructor injection from the existing resource scope.
 - `DataResolver`: invocation-isolated typed objects bound to `Execute` / `ExecuteAsync` arguments; outputs replace same-typed named values on revisited nodes.
 - `CapabilityResolver`: process execution, local intentions, terminal `@complete/@stop/@fail`, trace/log metadata and an optional `maxSteps` override of `CapabilityOptions.DefaultMaxSteps`.
 - Startup validation for type references, process method contracts and graph transitions; cancellation and resource-scope sharing.
@@ -55,27 +55,32 @@ The PoC does **not** implement: audit persistence, outbox, real LoA/RBAC, IdP, K
 
 Every PR triggers `.github/workflows/pr-verify.yml`: restore, Release build and xUnit tests. The implementation was authored in an environment without an installed .NET SDK, so use this pipeline to confirm compiler/test results before merge.
 
-## Simplified Process contracts
+## Process registration — JSON is the source of truth
 
-A Process class **does not implement a marker interface**. The framework discovers public
-concrete classes whose names end with `Process` and which expose a public `Execute`
-or `ExecuteAsync` method, only within assemblies explicitly registered by the Host.
+`AddArcanumFramework(assembly)` declares the trusted assemblies. The framework
+does **not** scan classes by suffix or interface: `AddArcanumCapabilitiesFromDirectory`
+reads each JSON, resolves the fully qualified CLR classes named in its
+`processes` catalog, registers only those types, validates their unique
+`Execute`/`ExecuteAsync` signatures and prepares cached invocation delegates.
 
-The sample Processes live in `src/Arcanum.Demo.Api/Processes/`, with model types in
-`Models/` and scoped services in `Services/`. Framework classes are grouped by
-`Abstractions/`, `Models/`, `Definitions/`, `Resolution/`, `Hosting/`,
-`Configuration/` and `Exceptions/`, one class per file.
+There is no `IProcess`. A class may have any name; `[Process]` is an optional
+documentation marker. `EchoActivity` demonstrates execution without marker,
+interface or suffix. `UnlistedActivity`, despite having `Execute`, is not
+registered because no Capability references it.
+
+Process classes live in `Processes/`, data types in `Models/`, infrastructure
+dependencies in `Services/`, one class per file.
 
 ```csharp
+[Process] // Optional: visual documentation, not used for discovery
 public sealed class ValidateProcess(
     IExecutionProbe probe,
     ILogger<ValidateProcess> logger)
 {
+    [ReturnName("validated")]
     public ProcessResult<ValidationData> Execute(DemoInput request)
     {
-        logger.LogInformation(
-            "Validating demo input for scoped execution {ScopeId}", probe.ScopeId);
-
+        logger.LogInformation("Validating input in scope {ScopeId}", probe.ScopeId);
         return new(
             new ValidationData(request.Value, probe.ScopeId),
             string.IsNullOrWhiteSpace(request.Value) ? "invalid" : "valid");
@@ -83,8 +88,53 @@ public sealed class ValidateProcess(
 }
 ```
 
-`IExecutionProbe` and `ILogger<ValidateProcess>` come from the Host resource
-scope via constructor injection. The `DemoInput` argument comes from the per-execution
-DataScope: **the binding attribute is unnecessary if its type has one unambiguous match**.
-When two execution values share a compatible type, `[FromCapabilityData("name")]`
-selects the intended one and missing or ambiguous data fails explicitly.
+Constructor arguments come from Host DI, `Execute` arguments from the
+per-invocation Data Scope. The resolver looks up **the parameter name first**,
+then falls back to a **unique compatible type**, and finally uses the
+optional `[FromCapabilityData("key")]` override if supplied.
+
+## Declarative Capability contract
+
+The host declares transport-neutral input and output bindings in the Capability
+JSON instead of mapping a `DemoInput` or creating `ExecutionDatum` inside
+the endpoint:
+
+```json
+{
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "final",
+        "type": "Arcanum.Demo.Api.CompletedData"
+      },
+      "@stop": {
+        "name": "validated",
+        "type": "Arcanum.Demo.Api.ValidationData"
+      }
+    }
+  }
+}
+```
+
+`demo.loop` declares `counter` with a constant default `{"count":0}`;
+`demo.nested` uses `"source":"$.payload"` to bind an embedded object.
+
+The `CapabilityContractResolver` converts the input JSON into typed named
+execution values, using only data types declared by trusted Process signatures.
+`CapabilityJsonDispatcher` executes the Capability and selects declared
+outputs, and the HTTP adapter maps terminal semantics to HTTP responses.
+
+```csharp
+app.MapArcanumCapabilityEndpoint(namePrefix: "demo.");
+```
+
+No endpoint-specific DTO translation or extra per-Capability mapping code is
+required. The PoC supports body root `$`, simple property paths `$.name`,
+constant defaults and typed terminal results; complex mappings, source
+converters, authentication and automatic OpenAPI generation are future work.

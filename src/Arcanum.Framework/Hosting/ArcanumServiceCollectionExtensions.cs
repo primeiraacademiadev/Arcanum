@@ -15,16 +15,9 @@ public static class ArcanumServiceCollectionExtensions
         if (processAssemblies.Length == 0)
             throw new ArgumentException("Specify at least one Process assembly.", nameof(processAssemblies));
 
-        var types = processAssemblies
-            .SelectMany(a => a.GetTypes())
-            .Where(t => t.IsClass && !t.IsAbstract && typeof(IProcess).IsAssignableFrom(t))
-            .Distinct()
-            .ToArray();
-
-        var catalog = new ProcessCatalog(types);
-        services.AddSingleton(catalog);
-        foreach (var type in types)
-            services.AddTransient(type);
+        // The JSON declarations determine which CLR classes are executable.
+        // Assemblies are a trusted allowlist, not an instruction to scan for Processes.
+        services.AddSingleton(new ProcessAssemblyRegistry(processAssemblies));
 
         services.AddOptions<CapabilityOptions>();
         services.AddSingleton<ProcessResolver>();
@@ -38,9 +31,33 @@ public static class ArcanumServiceCollectionExtensions
     public static IServiceCollection AddArcanumCapabilitiesFromDirectory(
         this IServiceCollection services, string directory)
     {
-        services.AddSingleton(sp => CapabilityCatalog.LoadFromDirectory(
-            directory,
-            sp.GetRequiredService<ProcessCatalog>(),
+        var registry = services
+            .LastOrDefault(x => x.ServiceType == typeof(ProcessAssemblyRegistry))?.ImplementationInstance
+            as ProcessAssemblyRegistry
+            ?? throw new InvalidOperationException(
+                "Register trusted assemblies with AddArcanumFramework first.");
+
+        if (!Directory.Exists(directory))
+            throw new CapabilityDefinitionException($"Capability directory does not exist: {directory}");
+
+        var definitions = Directory.GetFiles(directory, "*.json", SearchOption.TopDirectoryOnly)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .Select(path => CapabilityCatalog.ParseJson(File.ReadAllText(path)))
+            .ToArray();
+
+        var types = definitions
+            .SelectMany(definition => definition.Processes.Keys)
+            .Distinct(StringComparer.Ordinal)
+            .Select(registry.Resolve)
+            .ToArray();
+
+        var catalog = new ProcessCatalog(types);
+        services.AddSingleton(catalog);
+        foreach (var type in types)
+            services.AddTransient(type);
+
+        services.AddSingleton(sp => new CapabilityCatalog(
+            definitions, catalog,
             sp.GetRequiredService<IOptions<CapabilityOptions>>().Value));
         return services;
     }
