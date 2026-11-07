@@ -1,0 +1,21 @@
+name: Verify Arcanum prototype
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore Arcanum.slnx
+      - name: Build
+        run: dotnet build Arcanum.slnx --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Arcanum.slnx --configuration Release --no-build --no-restore

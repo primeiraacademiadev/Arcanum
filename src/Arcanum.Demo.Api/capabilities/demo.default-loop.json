@@ -1,0 +1,22 @@
+{
+  "name": "demo.default-loop",
+  "displayName": "Ciclo com limite por omissão",
+  "description": "Utiliza DefaultMaxSteps da framework.",
+  "version": 1,
+  "processes": {
+    "Arcanum.Demo.Api.CounterProcess": {
+      "displayName": "Contar iterações",
+      "description": "Incrementa dados de execução, sem reter estado no Process.",
+      "saveResultAs": "counter"
+    }
+  },
+  "graph": {
+    "entry": "Arcanum.Demo.Api.CounterProcess",
+    "transitions": {
+      "Arcanum.Demo.Api.CounterProcess": {
+        "again": "Arcanum.Demo.Api.CounterProcess",
+        "complete": "@complete"
+      }
+    }
+  }
+}

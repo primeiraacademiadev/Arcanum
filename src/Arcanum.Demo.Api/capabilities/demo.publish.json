@@ -1,0 +1,38 @@
+{
+  "name": "demo.publish",
+  "displayName": "Publicação de auditoria — demonstração",
+  "description": "Valida, enriquece e termina com dados da mesma execução.",
+  "version": 1,
+  "processes": {
+    "Arcanum.Demo.Api.ValidateProcess": {
+      "displayName": "Validar entrada",
+      "description": "Valida os campos obrigatórios.",
+      "saveResultAs": "validated"
+    },
+    "Arcanum.Demo.Api.EnrichProcess": {
+      "displayName": "Enriquecer dados",
+      "description": "Normaliza o texto e utiliza recurso scoped.",
+      "saveResultAs": "enriched"
+    },
+    "Arcanum.Demo.Api.FinishProcess": {
+      "displayName": "Concluir",
+      "description": "Verifica partilha de recurso por todos os passos.",
+      "saveResultAs": "final"
+    }
+  },
+  "graph": {
+    "entry": "Arcanum.Demo.Api.ValidateProcess",
+    "transitions": {
+      "Arcanum.Demo.Api.ValidateProcess": {
+        "valid": "Arcanum.Demo.Api.EnrichProcess",
+        "invalid": "@stop"
+      },
+      "Arcanum.Demo.Api.EnrichProcess": {
+        "enriched": "Arcanum.Demo.Api.FinishProcess"
+      },
+      "Arcanum.Demo.Api.FinishProcess": {
+        "finished": "@complete"
+      }
+    }
+  }
+}

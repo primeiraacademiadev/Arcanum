@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/Arcanum.Framework/Arcanum.Framework.csproj" />
+  <Project Path="src/Arcanum.Demo.Api/Arcanum.Demo.Api.csproj" />
+  <Project Path="tests/Arcanum.Framework.Tests/Arcanum.Framework.Tests.csproj" />
+</Solution>

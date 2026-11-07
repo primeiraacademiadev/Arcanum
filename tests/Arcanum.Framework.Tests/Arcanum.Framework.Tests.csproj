@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Arcanum.Framework/Arcanum.Framework.csproj" />
+    <ProjectReference Include="../../src/Arcanum.Demo.Api/Arcanum.Demo.Api.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../src/Arcanum.Demo.Api/capabilities/*.json"
+          Link="capabilities/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

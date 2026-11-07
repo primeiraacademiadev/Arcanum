@@ -1,0 +1,23 @@
+{
+  "name": "demo.loop",
+  "displayName": "Ciclo com limite específico",
+  "description": "Repete o mesmo Process stateless e utiliza um override de maxSteps.",
+  "version": 1,
+  "maxSteps": 4,
+  "processes": {
+    "Arcanum.Demo.Api.CounterProcess": {
+      "displayName": "Contar iterações",
+      "description": "Incrementa dados de execução, sem reter estado no Process.",
+      "saveResultAs": "counter"
+    }
+  },
+  "graph": {
+    "entry": "Arcanum.Demo.Api.CounterProcess",
+    "transitions": {
+      "Arcanum.Demo.Api.CounterProcess": {
+        "again": "Arcanum.Demo.Api.CounterProcess",
+        "complete": "@complete"
+      }
+    }
+  }
+}
