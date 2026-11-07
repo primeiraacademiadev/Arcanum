@@ -54,7 +54,7 @@ public sealed class CapabilityResolver(
                     $"Process '{processName}' returned an empty intention.");
 
             var metadata = definition.Processes[processName];
-            dataResolver.Store(data, metadata.SaveResultAs, result);
+            dataResolver.Store(data, metadata.SaveResultAs ?? descriptor.ReturnName!, result);
 
             if (!definition.Graph.Transitions[processName].TryGetValue(result.Intention, out var next))
                 throw new CapabilityTransitionException(
@@ -67,8 +67,14 @@ public sealed class CapabilityResolver(
                 name, steps, processName, result.Intention, next);
 
             if (next.StartsWith('@'))
+            {
+                var output = definition.Contract.Responses.TryGetValue(next, out var response)
+                    ? dataResolver.ResolveOutput(data, response)
+                    : result.Data;
+
                 return new CapabilityExecutionResult(
-                    name, definition.Version, next, result.Intention, steps, result.Data);
+                    name, definition.Version, next, result.Intention, steps, output);
+            }
 
             processName = next;
         }

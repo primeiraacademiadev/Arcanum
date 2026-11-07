@@ -20,6 +20,13 @@ public sealed class ExecutionDataScope
         _data[name] = new Entry(type, value);
     }
 
+    public ExecutionDatum Read(string name)
+    {
+        if (!_data.TryGetValue(name, out var value))
+            throw new CapabilityDataException($"Missing execution data '{name}'.");
+        return new ExecutionDatum(name, value.Type, value.Value);
+    }
+
     public object? Resolve(Type expectedType, string? name, string? parameterName = null)
     {
         if (name is not null)

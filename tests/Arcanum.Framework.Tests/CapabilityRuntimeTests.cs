@@ -3,6 +3,7 @@ using Arcanum.Framework;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 using Xunit;
 
 namespace Arcanum.Framework.Tests;
@@ -215,7 +216,7 @@ public class CapabilityRuntimeTests
 
 
     [Fact]
-    public void Processes_are_discovered_without_a_marker_interface()
+    public void Processes_are_discovered_by_IProcess_marker()
     {
         using var provider = CreateProvider();
         var descriptor = provider.GetRequiredService<ProcessCatalog>()
@@ -238,6 +239,118 @@ public class CapabilityRuntimeTests
 
         Assert.Equal("selected", result.Intention);
         Assert.Equal(7, Assert.IsType<CounterState>(result.Data).Count);
+    }
+
+
+    [Fact]
+    public void Process_marker_allows_arbitrary_class_names_and_rejects_accidental_classes()
+    {
+        var catalog = new ProcessCatalog([typeof(Fixtures.UnconventionallyNamedActivity)]);
+        Assert.Equal(typeof(Fixtures.UnconventionallyNamedActivity),
+            catalog.Get(typeof(Fixtures.UnconventionallyNamedActivity).FullName!).ProcessType);
+
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            ProcessDescriptor.Create(typeof(Fixtures.AccidentalProcess)));
+    }
+
+    [Fact]
+    public async Task Parameter_name_takes_precedence_over_ambiguous_type_matches()
+    {
+        var dataResolver = new DataResolver();
+        var data = dataResolver.CreateScope(
+        [
+            ExecutionDatum.Of("other", new CounterState(4)),
+            ExecutionDatum.Of("chosen", new CounterState(7))
+        ]);
+        var descriptor = ProcessDescriptor.Create(typeof(Fixtures.ConventionalNameProcess));
+        var args = dataResolver.Bind(descriptor, data, CancellationToken.None);
+        var result = await descriptor.InvokeAsync(new Fixtures.ConventionalNameProcess(), args);
+        Assert.Equal(7, Assert.IsType<CounterState>(result.Data).Count);
+    }
+
+    [Fact]
+    public void ReturnName_attribute_supplies_the_default_result_key()
+    {
+        using var provider = CreateProvider();
+        var descriptor = provider.GetRequiredService<ProcessCatalog>()
+            .Get(typeof(ValidateProcess).FullName!);
+        Assert.Equal("validated", descriptor.ReturnName);
+
+        var capability = provider.GetRequiredService<CapabilityCatalog>().Get("demo.publish");
+        Assert.Null(capability.Processes[typeof(ValidateProcess).FullName!].SaveResultAs);
+    }
+
+    [Fact]
+    public async Task JSON_contract_dispatcher_binds_DTO_and_returns_declared_response()
+    {
+        using var provider = CreateProvider();
+        using var scope = provider.CreateScope();
+        using var payload = JsonDocument.Parse("""{"value":"  example  "}""");
+
+        var result = await provider.GetRequiredService<CapabilityJsonDispatcher>()
+            .ExecuteAsync("demo.publish", payload.RootElement, scope.ServiceProvider);
+
+        Assert.Equal("@complete", result.Terminal);
+        Assert.Equal("EXAMPLE", Assert.IsType<CompletedData>(result.Data).Text);
+    }
+
+    [Fact]
+    public async Task Nested_JSON_contract_maps_payload_without_endpoint_conversions()
+    {
+        using var provider = CreateProvider();
+        using var scope = provider.CreateScope();
+        using var payload = JsonDocument.Parse("""{"payload":{"value":"  nested  "}}""");
+
+        var result = await provider.GetRequiredService<CapabilityJsonDispatcher>()
+            .ExecuteAsync("demo.nested", payload.RootElement, scope.ServiceProvider);
+
+        Assert.Equal("NESTED", Assert.IsType<CompletedData>(result.Data).Text);
+        Assert.Equal(3, result.Steps);
+    }
+
+    [Fact]
+    public async Task Contract_default_creates_counter_without_endpoint_code()
+    {
+        using var provider = CreateProvider();
+        using var scope = provider.CreateScope();
+        using var payload = JsonDocument.Parse("""{"value":"ok","iterations":3}""");
+
+        var result = await provider.GetRequiredService<CapabilityJsonDispatcher>()
+            .ExecuteAsync("demo.loop", payload.RootElement, scope.ServiceProvider);
+
+        Assert.Equal("@complete", result.Terminal);
+        Assert.Equal(3, Assert.IsType<CounterState>(result.Data).Count);
+    }
+
+    [Fact]
+    public async Task Missing_nested_contract_property_is_a_contract_error()
+    {
+        using var provider = CreateProvider();
+        using var scope = provider.CreateScope();
+        using var payload = JsonDocument.Parse("""{"value":"absent"}""");
+
+        await Assert.ThrowsAsync<CapabilityContractException>(() =>
+            provider.GetRequiredService<CapabilityJsonDispatcher>()
+                .ExecuteAsync("demo.nested", payload.RootElement, scope.ServiceProvider));
+    }
+
+    [Fact]
+    public void Invalid_contract_type_and_response_are_rejected_on_startup()
+    {
+        using var provider = CreateProvider();
+        var json = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.publish.json"));
+        var definition = CapabilityCatalog.ParseJson(json);
+        var processes = provider.GetRequiredService<ProcessCatalog>();
+
+        definition.Contract.Inputs["request"].Type = "System.IO.File";
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            new CapabilityCatalog([definition], processes, new CapabilityOptions()));
+
+        definition.Contract.Inputs["request"].Type = typeof(DemoInput).FullName!;
+        definition.Contract.Responses["@complete"].Type = typeof(ValidationData).FullName!;
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            new CapabilityCatalog([definition], processes, new CapabilityOptions()));
     }
 
     [Fact]

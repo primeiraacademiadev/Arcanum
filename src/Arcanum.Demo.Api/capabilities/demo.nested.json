@@ -1,0 +1,53 @@
+{
+  "name": "demo.nested",
+  "displayName": "Publicação com contrato de entrada aninhado",
+  "description": "Demonstra a conversão de $.payload para DemoInput sem código específico no endpoint.",
+  "version": 1,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$.payload"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "final",
+        "type": "Arcanum.Demo.Api.CompletedData"
+      },
+      "@stop": {
+        "name": "validated",
+        "type": "Arcanum.Demo.Api.ValidationData"
+      }
+    }
+  },
+  "processes": {
+    "Arcanum.Demo.Api.ValidateProcess": {
+      "displayName": "Validar entrada",
+      "description": "Valida os campos obrigatórios."
+    },
+    "Arcanum.Demo.Api.EnrichProcess": {
+      "displayName": "Enriquecer dados",
+      "description": "Normaliza o texto e utiliza recurso scoped."
+    },
+    "Arcanum.Demo.Api.FinishProcess": {
+      "displayName": "Concluir",
+      "description": "Verifica partilha de recurso por todos os passos."
+    }
+  },
+  "graph": {
+    "entry": "Arcanum.Demo.Api.ValidateProcess",
+    "transitions": {
+      "Arcanum.Demo.Api.ValidateProcess": {
+        "valid": "Arcanum.Demo.Api.EnrichProcess",
+        "invalid": "@stop"
+      },
+      "Arcanum.Demo.Api.EnrichProcess": {
+        "enriched": "Arcanum.Demo.Api.FinishProcess"
+      },
+      "Arcanum.Demo.Api.FinishProcess": {
+        "finished": "@complete"
+      }
+    }
+  }
+}

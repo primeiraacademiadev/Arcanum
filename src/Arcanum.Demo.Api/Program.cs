@@ -18,31 +18,8 @@ _ = app.Services.GetRequiredService<CapabilityCatalog>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
-app.MapPost("/capabilities/{name}/execute",
-    async (string name, DemoInput request, HttpContext context,
-        CapabilityCatalog catalog, CapabilityResolver resolver) =>
-    {
-        if (!name.StartsWith("demo.", StringComparison.Ordinal) || !catalog.Contains(name))
-            return Results.NotFound();
-
-        var result = await resolver.ExecuteAsync(
-            name,
-            new[]
-            {
-                ExecutionDatum.Of("request", request),
-                ExecutionDatum.Of("counter", new CounterState(0))
-            },
-            context.RequestServices,
-            context.RequestAborted);
-
-        return result.Terminal switch
-        {
-            "@complete" => Results.Ok(result),
-            "@stop" => Results.UnprocessableEntity(result),
-            "@fail" => Results.Problem(title: "Capability failed", statusCode: 500),
-            _ => Results.Problem(title: "Unknown terminal directive", statusCode: 500)
-        };
-    });
+// The framework adapter owns contract conversion and HTTP result mapping.
+app.MapArcanumCapabilityEndpoint(namePrefix: "demo.");
 
 app.Run();
 

@@ -3,11 +3,30 @@
   "displayName": "Ciclo com limite por omissão",
   "description": "Utiliza DefaultMaxSteps da framework.",
   "version": 1,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      },
+      "counter": {
+        "type": "Arcanum.Demo.Api.CounterState",
+        "default": {
+          "count": 0
+        }
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "counter",
+        "type": "Arcanum.Demo.Api.CounterState"
+      }
+    }
+  },
   "processes": {
     "Arcanum.Demo.Api.CounterProcess": {
       "displayName": "Contar iterações",
-      "description": "Incrementa dados de execução, sem reter estado no Process.",
-      "saveResultAs": "counter"
+      "description": "Incrementa dados de execução, sem reter estado no Process."
     }
   },
   "graph": {

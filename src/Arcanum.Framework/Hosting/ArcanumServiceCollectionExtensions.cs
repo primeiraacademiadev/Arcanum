@@ -30,6 +30,8 @@ public static class ArcanumServiceCollectionExtensions
         services.AddSingleton<ProcessResolver>();
         services.AddSingleton<DataResolver>();
         services.AddSingleton<CapabilityResolver>();
+        services.AddSingleton<CapabilityContractResolver>();
+        services.AddSingleton<CapabilityJsonDispatcher>();
         return services;
     }
 
