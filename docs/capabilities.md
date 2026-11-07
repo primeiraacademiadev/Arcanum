@@ -195,3 +195,84 @@ Retain **Microsoft.Extensions.DependencyInjection** as baseline; evaluate third-
 **Required decision spike:** same capability definition, same scoped repository/UoW, concurrent invocations, cancellation, disposal and typed data injection on Microsoft DI vs Autofac; add DryIoc only if needed. Measure implementation complexity and semantics before throughput. **Do not create two independent root ServiceProviders by default**: two *resolution contracts* are enough until proven otherwise.
 
 Tracking: #17 for V1 and #15 for graph navigation; new DI evaluation issue to be linked.
+
+
+## Resolver decomposition and Execute binding — refinement (2026-11-07)
+
+### Roles and lifetime
+
+- **CapabilityResolver**: one workflow execution using a validated, immutable Capability plan. Moves between Process nodes, receives `ProcessResult<T>`, writes typed outputs, then resolves graph transitions. Handles completion, tracing and execution guards.
+- **ProcessResolver**: wraps host-scoped DI and a trusted Process catalog. Resolves Process instances by logical Process ID; compiles/caches metadata about the execution method and its argument/result types. It does **not** select graph edges and must not build a new DI root.
+- **DataResolver**: manages a **per-Capability-invocation data scope**; binds a Process method's formal parameters using a stable key (`type + name`) and writes typed outputs. It is not a second `IServiceProvider` implementation requirement.
+
+The DataScope owns keys and typed values, while the DataResolver is responsible for reading/writing those values to satisfy invocation signatures. Ensure the DataScope is scoped to an invocation even if DataResolver service implementation can be reused.
+
+**Resolve Process resources from the same scope as transaction/UoW**. For HTTP, usually use `HttpContext.RequestServices`; for background execution, create a scope per event. Do not create an arbitrary nested scope for each Process, or scoped UoW/repository instances may differ.
+
+### Execute or ExecuteAsync
+
+Proposal: allow **exactly one public Process entry point** named `Execute` (synchronous `ProcessResult<T>`) **or** `ExecuteAsync` (`Task<ProcessResult<T>>` or `ValueTask<ProcessResult<T>>`). Reject ambiguous overloads on registration. The framework normalizes both forms internally to a cached asynchronous invoker. The V1 may implement only `ExecuteAsync` to reduce the surface; support for sync is straightforward once justified by real Processes.
+
+Method arguments can be injected via:
+- A **single registered typed value** when the parameter type is unique and unambiguous.
+- A `[FromCapabilityData("key")]` attribute when multiple values of the same type exist or to make source explicit.
+- A `CancellationToken` supplied specially by the resolver, never fetched from the data registry.
+
+At startup, validate the signature, allowed result shape, required data keys and each Process identifier against a whitelist; prepare a cached invocation delegate. Reflection at registration is acceptable; invoking `MethodInfo.Invoke` per event is not the target fast path. Compile-time source generation is optional later.
+
+Example:
+
+```csharp
+public sealed class ValidateAuditProcess(
+    IAuditValidator validator)
+{
+    public ProcessResult<AuditValidation> Execute(
+        [FromCapabilityData("incoming")] IncomingAuditEvent incoming)
+    {
+        var validation = validator.Validate(incoming);
+        return new(validation, validation.IsValid ? "valid" : "invalid");
+    }
+}
+
+public sealed class ClassifyAuditProcess(
+    IAuditClassifier classifier)
+{
+    public async ValueTask<ProcessResult<ClassifiedAuditEvent>> ExecuteAsync(
+        [FromCapabilityData("incoming")] IncomingAuditEvent incoming,
+        [FromCapabilityData("producer")] ProducerIdentity producer,
+        CancellationToken ct)
+    {
+        var classified = await classifier.ClassifyAsync(incoming, producer, ct);
+        return new(classified, "classified");
+    }
+}
+```
+
+A shared `IProcess` marker or entry-point attribute may help registration, but is not yet a hard requirement. If arbitrary method injection is adopted, it is an Arcanum binder feature; the built-in .NET DI container primarily provides constructor injection.
+
+### Reserved marker: directives versus intentions
+
+Use **`@` as a reserved framework directive prefix**, and **`.` as a qualification separator**. Examples: local Process intentions `valid`, `duplicate`; qualified observer name `arca.audit.publish.duplicate`. The current JSON samples use `@stop`, `@fail` and `@complete` as **transition destinations / terminal directives**, not ordinary business intentions emitted by a Process. `@next` means sequential fall-through when explicitly permitted; never silently infer a missing edge.
+
+The word *intention* should therefore refer to the Process output; the `@` expressions are reserved execution directives in the graph. If a future design permits Process-emitted system intents, it requires a distinct, unambiguous contract rather than overloading both positions.
+
+### Invocation pseudocode
+
+```text
+plan = capabilityCatalog.GetValidated(capabilityId, version)
+resources = current HttpRequest DI scope OR new Worker message scope
+data = dataResolver.CreateScope(initialInputs)
+
+node = plan.Entry
+while node is an activity:
+    process = processResolver.Resolve(node.ProcessId, resources)
+    args = data.Bind(node.InvocationDescriptor)
+    (result, intention) = await process.Invoke(args, cancellationToken)
+    data.Put(node.OutputKey, result)
+    node = plan.ResolveTransition(node.Id, intention)
+    enforce MaxSteps and transaction guards
+
+return data.ToCapabilityResult(node.Termination)
+```
+
+Reject missing input, duplicate output keys without an explicit overwrite policy, unsupported result shapes, and unknown/unmapped intentions. A terminal may still require result-specific HTTP mapping by the host adapter.
