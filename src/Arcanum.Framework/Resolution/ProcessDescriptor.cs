@@ -4,8 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Arcanum.Framework;
 
-public sealed record ArgumentBinding(Type ParameterType, string? DataName, bool IsCancellationToken);
-
 public sealed class ProcessDescriptor
 {
     private readonly Func<object, object?[], ValueTask<IProcessResult>> _invoke;
@@ -27,8 +25,8 @@ public sealed class ProcessDescriptor
 
     public static ProcessDescriptor Create(Type type)
     {
-        if (!type.IsClass || type.IsAbstract || !typeof(IProcess).IsAssignableFrom(type))
-            throw new CapabilityDefinitionException($"'{type.FullName}' is not a concrete IProcess.");
+        if (!type.IsClass || type.IsAbstract || !type.Name.EndsWith("Process", StringComparison.Ordinal))
+            throw new CapabilityDefinitionException($"'{type.FullName}' must be a concrete class named *Process.");
 
         var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m.Name is "Execute" or "ExecuteAsync")
@@ -117,37 +115,4 @@ public sealed class ProcessDescriptor
             (IProcessResult)await (ValueTask<ProcessResult<T>>)call(instance, args),
         _ => throw new CapabilityDefinitionException($"Unknown Process method mode '{mode}'.")
     };
-}
-
-public sealed class ProcessCatalog
-{
-    private readonly Dictionary<string, ProcessDescriptor> _descriptors;
-
-    public ProcessCatalog(IEnumerable<Type> processTypes)
-    {
-        _descriptors = new Dictionary<string, ProcessDescriptor>(StringComparer.Ordinal);
-        foreach (var type in processTypes.Distinct())
-        {
-            var key = type.FullName ?? throw new CapabilityDefinitionException("Unnamed Process type.");
-            if (!_descriptors.TryAdd(key, ProcessDescriptor.Create(type)))
-                throw new CapabilityDefinitionException($"Duplicate Process type name '{key}'.");
-        }
-    }
-
-    public ProcessDescriptor Get(string fullName) =>
-        _descriptors.TryGetValue(fullName, out var value)
-            ? value
-            : throw new CapabilityDefinitionException($"Unknown Process '{fullName}'.");
-}
-
-public sealed class ProcessResolver(ProcessCatalog catalog)
-{
-    public ProcessDescriptor GetDescriptor(string fullName) => catalog.Get(fullName);
-
-    public IProcess Resolve(ProcessDescriptor descriptor, IServiceProvider resourceScope) =>
-        (IProcess)resourceScope.GetRequiredService(descriptor.ProcessType);
-
-    public ValueTask<IProcessResult> InvokeAsync(
-        ProcessDescriptor descriptor, IProcess process, object?[] arguments) =>
-        descriptor.InvokeAsync(process, arguments);
 }

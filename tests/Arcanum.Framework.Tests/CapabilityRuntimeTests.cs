@@ -213,6 +213,33 @@ public class CapabilityRuntimeTests
                 "demo.publish", Data(new DemoInput("ok")), scope.ServiceProvider));
     }
 
+
+    [Fact]
+    public void Processes_are_discovered_without_a_marker_interface()
+    {
+        using var provider = CreateProvider();
+        var descriptor = provider.GetRequiredService<ProcessCatalog>()
+            .Get(typeof(ValidateProcess).FullName!);
+        Assert.Equal(typeof(ValidateProcess), descriptor.ProcessType);
+    }
+
+    [Fact]
+    public async Task Method_parameters_allow_explicit_names_when_the_type_is_ambiguous()
+    {
+        var dataResolver = new DataResolver();
+        var data = dataResolver.CreateScope(
+        [
+            ExecutionDatum.Of("other", new CounterState(4)),
+            ExecutionDatum.Of("chosen", new CounterState(7))
+        ]);
+        var descriptor = ProcessDescriptor.Create(typeof(Fixtures.NamedValueProcess));
+        var args = dataResolver.Bind(descriptor, data, CancellationToken.None);
+        var result = await descriptor.InvokeAsync(new Fixtures.NamedValueProcess(), args);
+
+        Assert.Equal("selected", result.Intention);
+        Assert.Equal(7, Assert.IsType<CounterState>(result.Data).Count);
+    }
+
     [Fact]
     public void Nonpositive_default_and_override_are_rejected()
     {

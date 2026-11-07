@@ -1,9 +1,8 @@
 namespace Arcanum.Framework;
 
-/// <summary>Invocation-local data registry; never registered as a host singleton or process service.</summary>
 public sealed class ExecutionDataScope
 {
-    private sealed record Entry(Type Type, object? Value);
+    private readonly record struct Entry(Type Type, object? Value);
 
     private readonly Dictionary<string, Entry> _data = new(StringComparer.Ordinal);
 
@@ -43,30 +42,5 @@ public sealed class ExecutionDataScope
             _ => throw new CapabilityDataException(
                 $"Ambiguous data type '{expectedType.FullName}'; use FromCapabilityData.")
         };
-    }
-}
-
-public sealed class DataResolver
-{
-    public ExecutionDataScope CreateScope(IEnumerable<ExecutionDatum> initialData)
-    {
-        var data = new ExecutionDataScope();
-        foreach (var item in initialData)
-            data.Store(item.Name, item.DataType, item.Value);
-        return data;
-    }
-
-    public object?[] Bind(
-        ProcessDescriptor descriptor, ExecutionDataScope data, CancellationToken cancellationToken)
-    {
-        return descriptor.Parameters.Select(binding =>
-            binding.IsCancellationToken
-                ? (object)cancellationToken
-                : data.Resolve(binding.ParameterType, binding.DataName)).ToArray();
-    }
-
-    public void Store(ExecutionDataScope data, string name, IProcessResult result)
-    {
-        data.Store(name, result.DataType, result.Data);
     }
 }

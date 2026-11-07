@@ -54,3 +54,37 @@ The PoC does **not** implement: audit persistence, outbox, real LoA/RBAC, IdP, K
 ## CI
 
 Every PR triggers `.github/workflows/pr-verify.yml`: restore, Release build and xUnit tests. The implementation was authored in an environment without an installed .NET SDK, so use this pipeline to confirm compiler/test results before merge.
+
+## Simplified Process contracts
+
+A Process class **does not implement a marker interface**. The framework discovers public
+concrete classes whose names end with `Process` and which expose a public `Execute`
+or `ExecuteAsync` method, only within assemblies explicitly registered by the Host.
+
+The sample Processes live in `src/Arcanum.Demo.Api/Processes/`, with model types in
+`Models/` and scoped services in `Services/`. Framework classes are grouped by
+`Abstractions/`, `Models/`, `Definitions/`, `Resolution/`, `Hosting/`,
+`Configuration/` and `Exceptions/`, one class per file.
+
+```csharp
+public sealed class ValidateProcess(
+    IExecutionProbe probe,
+    ILogger<ValidateProcess> logger)
+{
+    public ProcessResult<ValidationData> Execute(DemoInput request)
+    {
+        logger.LogInformation(
+            "Validating demo input for scoped execution {ScopeId}", probe.ScopeId);
+
+        return new(
+            new ValidationData(request.Value, probe.ScopeId),
+            string.IsNullOrWhiteSpace(request.Value) ? "invalid" : "valid");
+    }
+}
+```
+
+`IExecutionProbe` and `ILogger<ValidateProcess>` come from the Host resource
+scope via constructor injection. The `DemoInput` argument comes from the per-execution
+DataScope: **the binding attribute is unnecessary if its type has one unambiguous match**.
+When two execution values share a compatible type, `[FromCapabilityData("name")]`
+selects the intended one and missing or ambiguous data fails explicitly.
