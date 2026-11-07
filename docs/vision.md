@@ -21,10 +21,13 @@ The platform name is **Arcanum**. **Tessera** is the modular product family; mod
 
 The exact module boundaries remain **provisional**. In particular, ownership of the final authorization decision (PDP) and enforcement (PEP) must be validated through concrete workflows. We should not equate a conceptual module to a microservice.
 
-## Two complementary workstreams
+## Delivery strategy: prototype first, platform by iteration
 
-1. **Audit prototype (V1)**: two demo producers, transactional outbox and HTTP shipping, Concentrator (.NET Minimal API + PostgreSQL), classification of events and details, confidential auditor WebApp, local identities/RBAC/LoA, and equality search over hashed search terms.
-2. **General resource-governance model**: organization-agnostic resource typing, canonical hierarchy plus additional relations, classification policies, RBAC and scopes, policy evaluation, and eventual LoA elevation workflows.
+1. **First, demonstrate the Audit Concentrator (V1)**: two demo producers, transactional outbox and HTTP shipping, Concentrator (.NET Minimal API + PostgreSQL), classification of events and details, confidential auditor WebApp, local identities/RBAC/LoA, and equality search over hashed search terms. This is the immediate priority and its E2E acceptance tests define completion.
+2. **Then, extract the common framework progressively**: reusable activity chains, typed workflow contexts, outcomes, integration contracts and documentation, driven by actual second uses rather than invented abstractions.
+3. **Finally, grow into generic resource governance**: organization-agnostic resource types, canonical hierarchy plus additional relations, classification policies, resource RBAC/scopes, and LoA elevation workflows.
+
+Start with **one monorepo and distinct .NET projects**, not mandatory microservices. Keep Tessera module boundaries visible in code but introduce new modules/deployables only when needed. See [prototype delivery](prototype-v1.md), [monorepo proposal](monorepo.md) and [framework](framework.md).
 
 The V1 is intended as a demonstrator, not a production-security claim. Event details remain **plaintext** in V1. The HMAC equality index is retained as an exercise in search semantics, **not** as a substitute for encryption.
 
