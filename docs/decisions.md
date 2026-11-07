@@ -1,0 +1,26 @@
+# Arcanum — Decision Register
+
+Status terms: **Agreed** = stated decision; **Proposed** = design direction still open; **Deferred** = intentional evolution.
+
+| ID | Status | Decision / question |
+| --- | --- | --- |
+| D-001 | Agreed | Arcanum platform; Tessera module naming family. |
+| D-002 | Agreed | Concentrator determines effective event and detail LoA; producers do not. |
+| D-003 | Agreed | Four-digit, ordered LoA; higher codes impose stricter access (e.g. 0200 > 0100; 1130 >= 1120); optional supplementary scope checks. |
+| D-004 | Agreed | Roles/permissions (RBAC) govern operations; possession of high LoA does **not** confer permission to approve LoA elevations. |
+| D-005 | Agreed | Audit event identifies its originating actor (type, issuer, subject); consultation creates a separate audit event; internal auditor events may use related_event. |
+| D-006 | Agreed | Event/detail classifications are separate; viewing details requires access to both. |
+| D-007 | Agreed | V1 ingestion: .NET Minimal API, PostgreSQL, producer-side transactional outbox, HTTP shipping, UoW, activity chain and response middleware. |
+| D-008 | Agreed | V1 has no detail encryption; maintain plaintext fields and HMAC-SHA256 searchable equality hash (type-separated, global secret). |
+| D-009 | Agreed | Private keys never leave Concentrator / HSM; producers receive public keys when crypto is introduced. |
+| D-010 | Deferred | Elevation request + approval + temporary LoA grant; approving requires a role/permission, subject to separation of duties and configured authority limits. |
+| D-011 | Deferred | Real IdP integration, HSM externalization, encryption at rest and transport-level crypto beyond HTTPS. |
+| D-012 | Proposed | Canonical resource tree with supplementary typed graph relations; do not propagate authorization along arbitrary edges. |
+| D-013 | Proposed | Separate resource catalog, classification/LoA management, authorization and audit as conceptual modules; service/process boundaries undecided. |
+| D-014 | Proposed | PostgreSQL `ltree` for canonical paths; evaluate OPA and OpenFGA against concrete test cases before adoption. |
+| D-015 | Proposed | Query authorization and LoA filtering must be pushed down before pagination, with a clear decision explanation. |
+| D-016 | Open | Role-permission schema and location of authoritative PDP; candidate Tessera Clavis. |
+| D-017 | Open | Policy inheritance, selectors, overrides, effective classification, versioning and historical decision reconstruction. |
+| D-018 | Open | Exact publish JSON, actor taxonomy, idempotency response semantics and handling of malformed inputs. |
+
+Decisions can be promoted to ADRs when we have a specific contextual trade-off and rationale. Do not turn the entire register into irreversible commitments.
