@@ -1,241 +1,102 @@
-# Capability Model — JSON definitions and Process execution
+# Arcanum — Capabilities, Processes and graph execution
 
-Status: **architecture proposal for discussion** · 2026-11-07
+Status: **design proposal**, refined 2026-11-07. Used for Audit Concentrator V1; the framework API and JSON schema remain subject to a small executable spike.
 
-## Objective
+## Objective and rationale
 
-An Arcanum host (Minimal API, Worker Service or future transport) invokes a `Capability` by logical identifier. A `CapabilityResolver` executes its declared ordered `Process` steps. **Process implementations receive stable resources by constructor injection and invocation data by Execute-method injection**.
+A `Capability` is a versioned, executable description of a business flow. It belongs in the **same source solution** as its Process classes, so CI validates each graph with the code it invokes. It must also serve as **living functional documentation**: a human or an AI development agent should understand what a capability does and how execution proceeds without needing to open every Process implementation.
 
-The model should be expressive enough to add outcome-directed transitions later, but V1 implements a deterministic sequential runner rather than a general graph engine.
+- **Execution identity**: the full CLR type name (namespace + class name), not a separately maintained alias.
+- **Presentation**: `displayName` and optional `description` communicate business meaning; they are not identity keys.
+- **Node identity in V1**: the Process full type name, provided the type occurs **once per Capability graph**. A repeated invocation of the same Process will later require an explicit node-instance `id`, or another deliberate extension. Do not allow implicit duplicate nodes.
+- **Edges**: `on` maps a Process-returned **intention** to the full type name of the next Process, or to a reserved `@` directive.
+- **Source consistency**: graph JSON and implementation version together; rename/namespace changes to a Process must update all graph references in the same PR.
 
-## Concepts and ownership
-
-- **Capability definition**: id/version, input/output contract identifiers and an ordered list of Process references; immutable after activation; local versioned JSON in V1.
-- **Process catalog**: whitelisted map `processId -> implementation type + declared input/output/outcome metadata`. Do not load arbitrary CLR types from untrusted JSON.
-- **Process**: one business responsibility, depends on services/repositories/loggers through its constructor; `ExecuteAsync` receives only typed data from invocation scope.
-- **CapabilityResolver**: obtains a DI scope, instantiates/resolves each Process, binds its Execute parameters, invokes it, records results and determines continuation/termination.
-- **Resource scope**: .NET DI scope for services with regular singleton/scoped/transient semantics, including UoW resources.
-- **Data scope**: invocation-specific typed data registry, owned by the resolver; inputs and intermediate results are not registered as app services. Mutable execution state never escapes to another invocation.
-- **CapabilityResult**: transport-neutral status, optional typed output, diagnostics. HTTP/Kafka adapt it at the host boundary.
-
-## Example V1 capability definition
+## Proposed JSON — first executable graph
 
 ```json
 {
-  "id": "arca.audit.publish",
+  "name": "arca.audit.publish",
+  "displayName": "Publicação de eventos de auditoria",
+  "description": "Valida, classifica e persiste eventos recebidos de produtores autorizados.",
   "version": 1,
-  "input": "arca.audit.publish-input.v1",
-  "processes": [
-    { "id": "validate", "process": "arca.audit.validate" },
-    { "id": "deduplicate", "process": "arca.audit.deduplicate" },
-    { "id": "classify", "process": "arca.audit.classify" },
-    { "id": "persist", "process": "arca.audit.persist" }
+  "entry": "Arcanum.Arca.Processes.ValidateAuditProcess",
+  "nodes": [
+    {
+      "process": "Arcanum.Arca.Processes.ValidateAuditProcess",
+      "displayName": "Validar evento recebido",
+      "description": "Verifica o contrato e os campos obrigatórios.",
+      "saveResultAs": "validation",
+      "on": {
+        "valid": "Arcanum.Arca.Processes.ClassifyAuditProcess",
+        "invalid": "@stop"
+      }
+    },
+    {
+      "process": "Arcanum.Arca.Processes.ClassifyAuditProcess",
+      "displayName": "Determinar classificação",
+      "description": "Resolve o LoA do evento e dos detalhes segundo as regras do Concentrator.",
+      "saveResultAs": "classification",
+      "on": {
+        "classified": "Arcanum.Arca.Processes.PersistAuditProcess"
+      }
+    },
+    {
+      "process": "Arcanum.Arca.Processes.PersistAuditProcess",
+      "displayName": "Persistir evento",
+      "description": "Guarda o evento e os detalhes de forma transacional e idempotente.",
+      "saveResultAs": "receipt",
+      "on": {
+        "stored": "@complete"
+      }
+    }
   ]
 }
 ```
 
-The array order defines execution; a Process result may short-circuit with a terminal outcome. Reuse the **same registered Process** in different Capabilities only where responsibilities and data contracts match. The future graph model may add explicit `transitions` by named outcome.
+This **illustrative fragment** intentionally omits producer authorization, idempotency branching and detailed error outcomes for readability. The actual ingest capability must cover those requirements before implementation is complete.
 
-## Proposed Process contract
+The `on` dictionary represents outgoing **edges** of the node: intention → target Process identity. A future graphical editor may normalize it to explicit edges for drawing, without changing execution semantics. There is no extra mapping from a symbolic logical name to a Process CLR class.
 
-Method-level data injection is an **Arcanum framework feature**, not something the standard Microsoft DI container performs automatically for arbitrary class methods.
+### Graph display and AI legibility
 
-A conceptual Process implementation:
+`displayName` is required for the Capability and every node. `description` is recommended as a short, **behavioral statement**, not a mechanical restatement of the class name. The graph can therefore explain:
+- its overall purpose;
+- what each activity contributes;
+- which intentions produce which transitions and terminal results;
+- which source class implements each activity.
 
-```csharp
-public sealed class ClassifyAuditProcess(
-    IAuditClassifier classifier,
-    ILogger<ClassifyAuditProcess> logger) : IProcess
-{
-    public async ValueTask<ProcessOutcome<ClassifiedAuditEvent>> ExecuteAsync(
-        [FromCapabilityData("incoming")] IncomingAuditEvent incoming,
-        [FromCapabilityData("producer")] ProducerIdentity producer,
-        CancellationToken cancellationToken)
-    {
-        var value = await classifier.ClassifyAsync(
-            incoming, producer, cancellationToken);
-        return ProcessOutcome.Success(value);
-    }
-}
-```
+A graphical renderer should show **displayName**, intention labels and links by default, and expose the full type name and description in details. Changes to labels/descriptions are reviewed with functional changes, but do not change technical node identity. Consider i18n later; do not overload the display name with stable codes.
 
-`IProcess` may be a **marker interface** with an explicitly validated Execute signature, or a future generic interface when method contracts are fixed; **choose after a small compile/test spike**. The catalog analyzes Execute signatures at startup and caches invocation delegates; no arbitrary parameter resolution or repeated reflection on each event. Inputs are resolved by **typed key + identifier** with ambiguity/missing-data errors, rather than by ambiguous type alone.
+## Process identification and registration
 
-Output is assigned to a named data key specified in the catalog/definition or conventional metadata; the next Process may consume it. Outcomes such as `success`, `invalid`, `duplicate`, `denied` and `retryable_failure` remain semantic, not HTTP status codes. Returning a new typed object is preferred over implicit mutation of shared input objects.
+The Process identifier is `Type.FullName` from the assemblies explicitly registered by a Tessera module. V1 does **not require** `[Process("business.alias")]` or a manual logical-id-to-type correlation. A `ProcessCatalog` is still useful as a trusted **technical index** from full name to `Type` and compiled execution descriptor.
 
-## Two DI contexts are not necessarily two independent IServiceProvider roots
+- Scan **only explicit trusted assemblies**; no arbitrary JSON-directed assembly loading or type activation.
+- Reject duplicate type names from different assemblies, unknown Processes, unsupported methods and invalid data contracts on startup/CI.
+- The same Process may appear in multiple Capabilities, with different `displayName` values appropriate to their contexts.
+- If future independently deployed/persisted graph versions require stable external identities, add that abstraction only with a demonstrated need.
+- Distinguish graph node identity from **Process implementation type** if repeated instances become necessary; don't silently identify two occurrences as the same node.
 
-The proposed design has **two resolution domains**:
+## Resolver responsibilities
 
-1. The host `IServiceProvider` with a **scoped** instance for the Capability execution. Constructor injection uses this scope. Its lifetime governs scoped repositories, UoW and other resources.
-2. A **per-invocation data resolver** (`ICapabilityDataScope`) that binds typed Execute parameters. It is owned and disposed by the `CapabilityResolver`. It is not a second application root service container.
+| Component | Owns | Does not own |
+| --- | --- | --- |
+| CapabilityResolver | Validated graph plan; current node; intention → edge; terminal result; execution limits and trace | Building infrastructure services or reading HTTP-specific codes |
+| ProcessResolver | Trusted type catalog; host-scoped object creation via DI; validated `Execute` method descriptor/invoker | Choosing next node, binding business inputs |
+| DataResolver | Per-invocation typed data registry; binding `Execute` parameters; storing typed outputs by name and type | Constructor dependencies or graph navigation |
 
-Do **not** normally invoke `BuildServiceProvider()` a second time: this duplicates singleton instances, can break scope and disposal semantics, and obscures ownership. The built-in DI container also does not provide hierarchical scopes for combining arbitrary runtime registrations. If runtime data needs a full DI container, benchmark and document a deliberate adapter; do not assume a child scope can override arbitrary services.
+The architecture uses **two resolution contexts** rather than automatically creating two root service containers:
 
-Avoid registering request payloads as `Singleton`/`Scoped` services in the host container merely to perform method injection. Keep the concepts separate even when implemented by a single DI root.
+1. **Resource scope** from the Host DI (`HttpContext.RequestServices` for HTTP or a per-message scope for Workers). All Processes within a Capability execution share that scope for UoW/repository coherence.
+2. **Data scope** created for each Capability execution. It holds authenticated inputs, intermediate outputs, metadata and typed objects; no cross-request state is shared.
 
-## Execution algorithm
-
-1. Load and **validate** the immutable JSON definition on host startup (schema, unique step IDs, known Process IDs, declared input/output, compatible lifetimes and outcomes).
-2. At invocation, create an appropriate resource scope, then a separate data scope populated with authenticated input and transport-neutral metadata.
-3. Resolve each Process using the resource scope. Constructor injection supplies infrastructure.
-4. Bind annotated Execute parameters from the invocation data scope; inject CancellationToken as a special runtime parameter.
-5. Execute and validate Process outcome; register outputs into data scope and record step duration, outcome and trace IDs.
-6. Continue to next step or stop for a terminal outcome. Only the hosting adapter maps result to HTTP status, message acknowledgement or retry.
-7. Dispose data scope and resource scope, including async-disposable resources.
-
-For HTTP request handling, the resolver may reuse the **existing request DI scope** rather than create a second scope, so user identity, transactional UoW and scoped middleware dependencies are consistent. For BackgroundService, create a new scope per message/invocation.
-
-## Invariants
-
-- All execution data are strictly isolated by invocation; do not leak across simultaneous requests.
-- No Process directly decides where to branch; the Resolver owns control flow.
-- The Resolver never retries an activity with non-idempotent side effects unless an explicit retry policy guarantees safety.
-- Transactions/UoW belong to an explicitly documented boundary, not an implicit per-step commit.
-- Tracing/logging are cross-cutting execution behaviors; not required business graph nodes.
-- Sensitive execution data are not automatically logged or surfaced in telemetry.
-- Definitions and Process registrations are versioned; a graph/editor is a **deferred extension**.
-- Process catalog validation must reject unauthorized code types and invalid parameter bindings.
-
-## Next implementation spike (small)
-
-Build a linear four-step demo of `arca.audit.publish` with two inputs and one intermediate output injected into `ExecuteAsync`; one Process depends on an injected scoped repository. Verify concurrency isolation, scope disposal, cancellation, short-circuiting, missing data and startup validation. Only then finalize the Process interface and DI strategy.
-
-Tracking: #13 (incremental framework) and #15 (future graph runtime).
-
-
-## Design refinement — Intention-directed navigation (2026-11-07)
-
-**Proposal under review.** Every Process returns **data result + intention**. The resolver first registers the returned typed result in the per-invocation data scope and then resolves the intention against the current node's transitions. Process code does not call another Process, know its node ID or select a next class.
-
-Conceptual signature:
+## Process execution contract (proposed)
 
 ```csharp
 public sealed record ProcessResult<T>(T? Data, string Intention);
 
-public ValueTask<ProcessResult<ValidationData>> ExecuteAsync(
-    [FromCapabilityData("incoming")] IncomingAuditEvent incoming,
-    CancellationToken ct);
-```
-
-The result is typed output data (including validation/rejection details), **not the control-flow selector**. Intention is the control-flow signal. A Process may return `valid`, `invalid` or `duplicate`; the graph owns their destination. Error details must be sanitized and differentiated from unexpected exceptions. Avoid converting every unhandled exception to an intention.
-
-### Example directed flow (candidate extension)
-
-```json
-{
-  "id": "arca.audit.publish",
-  "version": 1,
-  "entry": "validate",
-  "nodes": [
-    {
-      "id": "validate",
-      "process": "arca.audit.validate",
-      "saveResultAs": "validation",
-      "on": { "valid": "deduplicate", "invalid": "@stop" }
-    },
-    {
-      "id": "deduplicate",
-      "process": "arca.audit.deduplicate",
-      "saveResultAs": "deduplication",
-      "on": { "new": "classify", "duplicate": "@stop", "conflict": "@fail" }
-    },
-    {
-      "id": "classify",
-      "process": "arca.audit.classify",
-      "saveResultAs": "classified",
-      "on": { "classified": "persist" }
-    },
-    {
-      "id": "persist",
-      "process": "arca.audit.persist",
-      "saveResultAs": "receipt",
-      "on": { "stored": "@complete" }
-    }
-  ]
-}
-```
-
-This JSON is an **illustrative design**, not yet the accepted schema. V1 can begin with a linear node list and `@next` semantics; a one-branch proof is a small extension rather than a full graph engine.
-
-### Intention namespaces
-
-- **Local intentions**, e.g. `valid`, `duplicate`, `rejected`, are defined by reusable Process contracts; transition lookup is **relative to the current node**, preventing collisions across nodes.
-- **Reserved framework intentions**, candidate prefix `@`: `@next` (linear fall-through only), `@complete` (success terminal), `@stop` (terminal with returned domain result), `@fail` (terminal failure). `@retry` is *reserved for future use*, and must never blindly repeat side effects.
-- **Capability-qualified intentions**, e.g. `arca.audit.publish.duplicate`, are a future **qualified identifier** for external observation/routing. Prefer to **qualify at the resolver boundary**; do not force reusable Processes to hardcode their caller's Capability ID.
-
-The exact reserved names and outcome model are not final. Do not let arbitrary user-defined names impersonate reserved intentions. A transition must never be silently inferred when no mapping is present: reject invalid definitions at startup and fail safely if an unexpected intention appears.
-
-### Data scope and graph execution order
-
-1. Resolve Process instance from the host **resource scope** and bind its Execute inputs from per-invocation **data scope**.
-2. Invoke and obtain `ProcessResult<T>`.
-3. Validate and write the result to `saveResultAs` (type + name), with explicit overwrite/version rules.
-4. Resolve the intention using the **current node's** validated transition map.
-5. Record Process ID, Capability version, intention, transition and timing (without logging sensitive values).
-6. Move to the target node or conclude with explicit terminal semantics.
-
-For V1, disallow cycles and parallel branches; enforce max-node execution limits and UoW/side-effect invariants. Version the definition atomically so live executions use a stable plan.
-
-## Dependency injection candidates and decision criteria (2026-11-07)
-
-Retain **Microsoft.Extensions.DependencyInjection** as baseline; evaluate third-party containers when they demonstrably simplify the two-context model. Constructor injection remains standard host DI; arbitrary method-parameter binding remains an **Arcanum responsibility** even when a third-party container supports parameterized object creation.
-
-| Candidate | Main reason to test | Caveat |
-| --- | --- | --- |
-| Microsoft DI | Native IHost, common scopes, minimal dependency footprint | Cannot configure arbitrary child registrations on a per-invocation scope; needs DataScope binder |
-| Autofac | Nested lifetime scopes, local registrations, parameterized resolution and mature ASP.NET Core integration | Nested scoped service instances and UoW sharing require explicit lifecycle design; does not auto-bind arbitrary Execute methods |
-| DryIoc | Advanced resolution strategies and potential performance | Validate adapter compatibility and binding against current .NET host conventions |
-| Stashbox | Scope flexibility and Generic Host integration | Evaluate behavior against reference cases before adopting |
-| Lamar | Convention-based registrations and integration | No clear unique need yet |
-| LightInject | Feature-rich integration | No proven advantage on current contract |
-| Grace | Flexible composition | Not priority without specific need |
-| Simple Injector | Container validation / lifestyle diagnostics | Cross-wiring second container adds complexity; its documentation cautions against hidden method injection |
-
-**Required decision spike:** same capability definition, same scoped repository/UoW, concurrent invocations, cancellation, disposal and typed data injection on Microsoft DI vs Autofac; add DryIoc only if needed. Measure implementation complexity and semantics before throughput. **Do not create two independent root ServiceProviders by default**: two *resolution contracts* are enough until proven otherwise.
-
-Tracking: #17 for V1 and #15 for graph navigation; new DI evaluation issue to be linked.
-
-
-## Resolver decomposition and Execute binding — refinement (2026-11-07)
-
-### Roles and lifetime
-
-- **CapabilityResolver**: one workflow execution using a validated, immutable Capability plan. Moves between Process nodes, receives `ProcessResult<T>`, writes typed outputs, then resolves graph transitions. Handles completion, tracing and execution guards.
-- **ProcessResolver**: wraps host-scoped DI and a trusted Process catalog. Resolves Process instances by logical Process ID; compiles/caches metadata about the execution method and its argument/result types. It does **not** select graph edges and must not build a new DI root.
-- **DataResolver**: manages a **per-Capability-invocation data scope**; binds a Process method's formal parameters using a stable key (`type + name`) and writes typed outputs. It is not a second `IServiceProvider` implementation requirement.
-
-The DataScope owns keys and typed values, while the DataResolver is responsible for reading/writing those values to satisfy invocation signatures. Ensure the DataScope is scoped to an invocation even if DataResolver service implementation can be reused.
-
-**Resolve Process resources from the same scope as transaction/UoW**. For HTTP, usually use `HttpContext.RequestServices`; for background execution, create a scope per event. Do not create an arbitrary nested scope for each Process, or scoped UoW/repository instances may differ.
-
-### Execute or ExecuteAsync
-
-Proposal: allow **exactly one public Process entry point** named `Execute` (synchronous `ProcessResult<T>`) **or** `ExecuteAsync` (`Task<ProcessResult<T>>` or `ValueTask<ProcessResult<T>>`). Reject ambiguous overloads on registration. The framework normalizes both forms internally to a cached asynchronous invoker. The V1 may implement only `ExecuteAsync` to reduce the surface; support for sync is straightforward once justified by real Processes.
-
-Method arguments can be injected via:
-- A **single registered typed value** when the parameter type is unique and unambiguous.
-- A `[FromCapabilityData("key")]` attribute when multiple values of the same type exist or to make source explicit.
-- A `CancellationToken` supplied specially by the resolver, never fetched from the data registry.
-
-At startup, validate the signature, allowed result shape, required data keys and each Process identifier against a whitelist; prepare a cached invocation delegate. Reflection at registration is acceptable; invoking `MethodInfo.Invoke` per event is not the target fast path. Compile-time source generation is optional later.
-
-Example:
-
-```csharp
-public sealed class ValidateAuditProcess(
-    IAuditValidator validator)
-{
-    public ProcessResult<AuditValidation> Execute(
-        [FromCapabilityData("incoming")] IncomingAuditEvent incoming)
-    {
-        var validation = validator.Validate(incoming);
-        return new(validation, validation.IsValid ? "valid" : "invalid");
-    }
-}
-
-public sealed class ClassifyAuditProcess(
-    IAuditClassifier classifier)
+public sealed class ClassifyAuditProcess(IAuditClassifier classifier)
 {
     public async ValueTask<ProcessResult<ClassifiedAuditEvent>> ExecuteAsync(
         [FromCapabilityData("incoming")] IncomingAuditEvent incoming,
@@ -248,31 +109,39 @@ public sealed class ClassifyAuditProcess(
 }
 ```
 
-A shared `IProcess` marker or entry-point attribute may help registration, but is not yet a hard requirement. If arbitrary method injection is adopted, it is an Arcanum binder feature; the built-in .NET DI container primarily provides constructor injection.
+- Resources are injected into Process constructors by the existing Host DI provider.
+- Execution data are injected into **method parameters** by Arcanum's DataResolver. Native Microsoft DI does not implement arbitrary method-level data binding automatically.
+- Accept one unambiguous `Execute` returning `ProcessResult<T>`, or `ExecuteAsync` returning `Task/ValueTask<ProcessResult<T>>`; validation rejects ambiguous overloads. The runtime normalizes both to a cached async invoker.
+- Bind data by **typed key + name**. Type-only binding is acceptable only when unambiguous; use `[FromCapabilityData("name")]` otherwise. CancellationToken comes from execution runtime.
+- The Process returns `Data` and an **intention**. After execution, DataResolver stores the result under `saveResultAs` **before** CapabilityResolver resolves the outgoing edge.
 
-### Reserved marker: directives versus intentions
+### Intention and terminal directives
 
-Use **`@` as a reserved framework directive prefix**, and **`.` as a qualification separator**. Examples: local Process intentions `valid`, `duplicate`; qualified observer name `arca.audit.publish.duplicate`. The current JSON samples use `@stop`, `@fail` and `@complete` as **transition destinations / terminal directives**, not ordinary business intentions emitted by a Process. `@next` means sequential fall-through when explicitly permitted; never silently infer a missing edge.
+- Ordinary intentions are names local to the current Process node, e.g. `valid`, `invalid`, `duplicate`, `classified`.
+- A target beginning with `@` is a reserved **graph directive**, not an ordinary business intention. Candidate targets: `@next` (explicit sequential continuation), `@complete` (successful terminal), `@stop` (terminal with current functional result) and `@fail` (failure). Reserve `@retry` only for later deliberate retry design.
+- `.` is a namespace separator, e.g. `arca.audit.publish.duplicate`, used if capabilities or external observers need qualified intentions; reusable Process classes need not know their caller's Capability name.
+- Every returned intention must match a declared outgoing edge of its node; unknown intentions fail safely. Do not fall through silently.
+- Unexpected exceptions are not casually converted to business intentions; preserve diagnostics and avoid exposing sensitive data.
 
-The word *intention* should therefore refer to the Process output; the `@` expressions are reserved execution directives in the graph. If a future design permits Process-emitted system intents, it requires a distinct, unambiguous contract rather than overloading both positions.
+## Runtime sequence
 
-### Invocation pseudocode
+1. On host startup, parse JSON, resolve all Process types and method contracts, validate all node targets, unique names, output bindings, reachability and unsupported graph structures.
+2. Obtain the correct Host resource scope and an isolated DataScope for one invocation.
+3. Resolve the current Process by its `Type.FullName` through ProcessResolver; bind the Execute parameters from DataResolver.
+4. Invoke the Process and obtain `ProcessResult<T>`.
+5. Validate/store typed output as `saveResultAs`.
+6. Resolve the current node's `on[intention]` into another Process node or an `@` terminal directive.
+7. Record transition metadata and duration, then continue or return a transport-neutral Capability result.
 
-```text
-plan = capabilityCatalog.GetValidated(capabilityId, version)
-resources = current HttpRequest DI scope OR new Worker message scope
-data = dataResolver.CreateScope(initialInputs)
+Never log confidential data automatically. Do not retry operations with unguarded side effects. UoW/commit boundaries are explicit. V1 starts with deterministic, bounded, acyclic execution; parallelism, cycles, durable resumptions and a graphical editor remain future features. The complete graph definition and its version are immutable during a running invocation.
 
-node = plan.Entry
-while node is an activity:
-    process = processResolver.Resolve(node.ProcessId, resources)
-    args = data.Bind(node.InvocationDescriptor)
-    (result, intention) = await process.Invoke(args, cancellationToken)
-    data.Put(node.OutputKey, result)
-    node = plan.ResolveTransition(node.Id, intention)
-    enforce MaxSteps and transaction guards
+## Container choice
 
-return data.ToCapabilityResult(node.Termination)
-```
+Native `Microsoft.Extensions.DependencyInjection` is the baseline for resource injection; evaluate Autofac and possibly DryIoc if advanced scopes materially simplify execution (#18). Neither constructor parameterized resolution nor scopes automatically bind arbitrary `Execute` data arguments. The DataResolver remains framework-owned regardless of container choice. No second independent root `IServiceProvider` by default.
 
-Reject missing input, duplicate output keys without an explicit overwrite policy, unsupported result shapes, and unknown/unmapped intentions. A terminal may still require result-specific HTTP mapping by the host adapter.
+## Delivery and decision points
+
+- #17: proof of ProcessResolver + DataResolver + CapabilityResolver over a small JSON graph, with a single branching intention and typed result handoff.
+- #15: future versioned graph authoring, validation and editor.
+- #18: DI container comparison.
+- Before freezing V1 contract: decide whether to permit repeated Process classes via optional node-instance IDs. For now **one occurrence per Capability** is an explicit constraint, not an accidental assumption.
