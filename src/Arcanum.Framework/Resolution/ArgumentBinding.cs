@@ -4,4 +4,4 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Arcanum.Framework;
 
-public sealed record ArgumentBinding(Type ParameterType, string? DataName, bool IsCancellationToken);
+public sealed record ArgumentBinding(Type ParameterType, string ParameterName, string? DataName, bool IsCancellationToken);

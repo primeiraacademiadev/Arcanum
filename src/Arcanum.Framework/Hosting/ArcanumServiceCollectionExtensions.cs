@@ -17,9 +17,7 @@ public static class ArcanumServiceCollectionExtensions
 
         var types = processAssemblies
             .SelectMany(a => a.GetTypes())
-            .Where(t => t.IsClass && !t.IsAbstract && t.Name.EndsWith("Process", StringComparison.Ordinal)
-                && t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
-                    .Any(m => m.Name is "Execute" or "ExecuteAsync"))
+            .Where(t => t.IsClass && !t.IsAbstract && typeof(IProcess).IsAssignableFrom(t))
             .Distinct()
             .ToArray();
 

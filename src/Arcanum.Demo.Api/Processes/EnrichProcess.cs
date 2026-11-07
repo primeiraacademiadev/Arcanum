@@ -3,8 +3,9 @@ using Arcanum.Framework;
 
 namespace Arcanum.Demo.Api;
 
-public sealed class EnrichProcess(IExecutionProbe probe, ILogger<EnrichProcess> logger)
+public sealed class EnrichProcess(IExecutionProbe probe, ILogger<EnrichProcess> logger) : IProcess
 {
+    [ReturnName("enriched")]
     public ValueTask<ProcessResult<EnrichedData>> ExecuteAsync(
         ValidationData validated,
         CancellationToken cancellationToken)

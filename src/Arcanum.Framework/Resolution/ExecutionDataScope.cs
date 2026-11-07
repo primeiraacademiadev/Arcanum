@@ -20,7 +20,7 @@ public sealed class ExecutionDataScope
         _data[name] = new Entry(type, value);
     }
 
-    public object? Resolve(Type expectedType, string? name)
+    public object? Resolve(Type expectedType, string? name, string? parameterName = null)
     {
         if (name is not null)
         {
@@ -32,6 +32,16 @@ public sealed class ExecutionDataScope
             return value.Value;
         }
 
+
+        // Parameter name is the conventional key. A matching but incompatible key is an error.
+        if (parameterName is not null && _data.TryGetValue(parameterName, out var named))
+        {
+            if (!expectedType.IsAssignableFrom(named.Type))
+                throw new CapabilityDataException(
+                    $"Data '{parameterName}' has type '{named.Type.FullName}', not '{expectedType.FullName}'.");
+            return named.Value;
+        }
+
         var matches = _data.Values
             .Where(v => expectedType.IsAssignableFrom(v.Type)).ToArray();
 
@@ -40,7 +50,7 @@ public sealed class ExecutionDataScope
             1 => matches[0].Value,
             0 => throw new CapabilityDataException($"No execution data of type '{expectedType.FullName}'."),
             _ => throw new CapabilityDataException(
-                $"Ambiguous data type '{expectedType.FullName}'; use FromCapabilityData.")
+                $"Ambiguous data type '{expectedType.FullName}'; use a matching parameter name or FromCapabilityData.")
         };
     }
 }

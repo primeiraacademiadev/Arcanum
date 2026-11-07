@@ -2,8 +2,9 @@ using Arcanum.Framework;
 
 namespace Arcanum.Demo.Api;
 
-public sealed class FinishProcess(IExecutionProbe probe)
+public sealed class FinishProcess(IExecutionProbe probe) : IProcess
 {
+    [ReturnName("final")]
     public Task<ProcessResult<CompletedData>> ExecuteAsync(
         EnrichedData enriched,
         CancellationToken cancellationToken)

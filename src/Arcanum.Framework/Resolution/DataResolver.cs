@@ -16,7 +16,7 @@ public sealed class DataResolver
         return descriptor.Parameters.Select(binding =>
             binding.IsCancellationToken
                 ? (object)cancellationToken
-                : data.Resolve(binding.ParameterType, binding.DataName)).ToArray();
+                : data.Resolve(binding.ParameterType, binding.DataName, binding.ParameterName)).ToArray();
     }
 
     public void Store(ExecutionDataScope data, string name, IProcessResult result)

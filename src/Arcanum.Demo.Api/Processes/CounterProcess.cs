@@ -3,8 +3,9 @@ using Arcanum.Framework;
 namespace Arcanum.Demo.Api;
 
 /// <summary>Stateless process. Repeated visits are represented by execution data.</summary>
-public sealed class CounterProcess
+public sealed class CounterProcess : IProcess
 {
+    [ReturnName("counter")]
     public ProcessResult<CounterState> Execute(
         DemoInput request,
         CounterState current)

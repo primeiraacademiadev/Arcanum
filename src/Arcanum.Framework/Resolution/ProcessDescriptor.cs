@@ -11,22 +11,28 @@ public sealed class ProcessDescriptor
     private ProcessDescriptor(
         Type processType,
         ArgumentBinding[] parameters,
+        Type returnDataType,
+        string? returnName,
         Func<object, object?[], ValueTask<IProcessResult>> invoke)
     {
         ProcessType = processType;
         Parameters = parameters;
+        ReturnDataType = returnDataType;
+        ReturnName = returnName;
         _invoke = invoke;
     }
 
     public Type ProcessType { get; }
     public IReadOnlyList<ArgumentBinding> Parameters { get; }
+    public Type ReturnDataType { get; }
+    public string? ReturnName { get; }
     public ValueTask<IProcessResult> InvokeAsync(object instance, object?[] arguments) =>
         _invoke(instance, arguments);
 
     public static ProcessDescriptor Create(Type type)
     {
-        if (!type.IsClass || type.IsAbstract || !type.Name.EndsWith("Process", StringComparison.Ordinal))
-            throw new CapabilityDefinitionException($"'{type.FullName}' must be a concrete class named *Process.");
+        if (!type.IsClass || type.IsAbstract || !typeof(IProcess).IsAssignableFrom(type))
+            throw new CapabilityDefinitionException($"'{type.FullName}' must be a concrete IProcess.");
 
         var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m.Name is "Execute" or "ExecuteAsync")
@@ -51,9 +57,14 @@ public sealed class ProcessDescriptor
 
             return new ArgumentBinding(
                 p.ParameterType,
+                p.Name ?? throw new CapabilityDefinitionException("Process parameter without name."),
                 key,
                 p.ParameterType == typeof(CancellationToken));
         }).ToArray();
+
+        var returnName = method.GetCustomAttribute<ReturnNameAttribute>()?.Name;
+        if (returnName is not null && string.IsNullOrWhiteSpace(returnName))
+            throw new CapabilityDefinitionException($"ReturnName on '{type.FullName}' cannot be blank.");
 
         var returnType = method.ReturnType;
         var mode = method.Name == "Execute" ? "sync" : "";
@@ -101,6 +112,8 @@ public sealed class ProcessDescriptor
         return new ProcessDescriptor(
             type,
             parameters,
+            resultType,
+            returnName,
             (Func<object, object?[], ValueTask<IProcessResult>>)adapter!);
     }
 

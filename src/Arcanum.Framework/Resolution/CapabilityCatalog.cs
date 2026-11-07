@@ -84,10 +84,15 @@ public sealed class CapabilityCatalog
             if (string.IsNullOrWhiteSpace(name))
                 throw new CapabilityDefinitionException("Process type name cannot be empty.");
             catalog.Get(name);
-            if (metadata is null || string.IsNullOrWhiteSpace(metadata.DisplayName) ||
-                string.IsNullOrWhiteSpace(metadata.SaveResultAs))
+            var descriptor = catalog.Get(name);
+            if (metadata is null || string.IsNullOrWhiteSpace(metadata.DisplayName))
                 throw new CapabilityDefinitionException(
-                    $"Process '{name}' requires displayName and saveResultAs.");
+                    $"Process '{name}' requires displayName.");
+            if (metadata.SaveResultAs is not null && string.IsNullOrWhiteSpace(metadata.SaveResultAs))
+                throw new CapabilityDefinitionException($"Process '{name}' has empty saveResultAs.");
+            if (metadata.SaveResultAs is null && descriptor.ReturnName is null)
+                throw new CapabilityDefinitionException(
+                    $"Process '{name}' requires [ReturnName] or saveResultAs.");
         }
 
         if (!definition.Processes.ContainsKey(definition.Graph.Entry))
@@ -122,5 +127,84 @@ public sealed class CapabilityCatalog
                         $"Target Process '{target}' of '{source}' is not registered.");
             }
         }
+
+        ValidateContract(definition, catalog);
+    }
+
+    private static void ValidateContract(CapabilityDefinition definition, ProcessCatalog catalog)
+    {
+        var contract = definition.Contract;
+        if (contract is null || contract.Inputs is null || contract.Inputs.Count == 0)
+            throw new CapabilityDefinitionException(
+                $"Capability '{definition.Name}' requires a contract with inputs.");
+        if (contract.Responses is null)
+            throw new CapabilityDefinitionException(
+                $"Capability '{definition.Name}' requires response declarations.");
+
+        foreach (var (name, input) in contract.Inputs)
+        {
+            if (string.IsNullOrWhiteSpace(name) || input is null ||
+                string.IsNullOrWhiteSpace(input.Type))
+                throw new CapabilityDefinitionException("Contract inputs need a name and type.");
+
+            var type = catalog.GetDataType(input.Type);
+            var fromPayload = input.Source is not null;
+            var fromDefault = input.Default.ValueKind != JsonValueKind.Undefined;
+            if (fromPayload == fromDefault)
+                throw new CapabilityDefinitionException(
+                    $"Contract input '{name}' must have exactly one of source or default.");
+
+            if (fromPayload && !CapabilityContractResolver.IsValidSource(input.Source!))
+                throw new CapabilityDefinitionException(
+                    $"Contract input '{name}' has unsupported source '{input.Source}'.");
+
+            if (fromDefault)
+            {
+                try
+                {
+                    var value = input.Default.Deserialize(type, CapabilityContractResolver.JsonOptions);
+                    if (value is null)
+                        throw new CapabilityDefinitionException(
+                            $"Contract input '{name}' has a null default.");
+                }
+                catch (JsonException e)
+                {
+                    throw new CapabilityDefinitionException(
+                        $"Contract input '{name}' has invalid default data: {e.Message}");
+                }
+            }
+        }
+
+        var produced = new Dictionary<string, Type>(StringComparer.Ordinal);
+        foreach (var (name, metadata) in definition.Processes)
+        {
+            var descriptor = catalog.Get(name);
+            var key = metadata.SaveResultAs ?? descriptor.ReturnName!;
+            if (produced.TryGetValue(key, out var previous) && previous != descriptor.ReturnDataType)
+                throw new CapabilityDefinitionException(
+                    $"Different output types use the same result name '{key}'.");
+            produced[key] = descriptor.ReturnDataType;
+        }
+
+        foreach (var (terminal, response) in contract.Responses)
+        {
+            if (terminal is not ("@complete" or "@stop" or "@fail") ||
+                response is null || string.IsNullOrWhiteSpace(response.Name) ||
+                string.IsNullOrWhiteSpace(response.Type))
+                throw new CapabilityDefinitionException(
+                    $"Invalid contract response for terminal '{terminal}'.");
+            if (!produced.TryGetValue(response.Name, out var actual) ||
+                actual.FullName != response.Type)
+                throw new CapabilityDefinitionException(
+                    $"Contract response '{terminal}' must reference a produced result with its exact type.");
+        }
+
+        foreach (var terminal in definition.Graph.Transitions.Values
+                     .SelectMany(mapping => mapping.Values)
+                     .Where(target => target is "@complete" or "@stop")
+                     .Distinct(StringComparer.Ordinal))
+            if (!contract.Responses.ContainsKey(terminal))
+                throw new CapabilityDefinitionException(
+                    $"Capability '{definition.Name}' requires a response declaration for '{terminal}'.");
     }
 }
