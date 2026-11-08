@@ -211,7 +211,7 @@ public sealed class ParallelExecutionTests
     }
 
     [Fact]
-    public void Graph_spawn_edges_are_system_intentions_not_process_intentions()
+    public async Task Graph_spawn_edges_are_system_intentions_not_process_intentions()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "capabilities", "demo.parallel.json");
         var graph = CapabilityCatalog.ParseJson(File.ReadAllText(path)).Graph;
@@ -222,7 +222,7 @@ public sealed class ParallelExecutionTests
         // The Process returns only "ready"; the resolver records the system
         // intention separately on the outgoing graph transition.
         using var provider = Provider();
-        var result = Run(provider, "demo.parallel", "ok").GetAwaiter().GetResult();
+        var result = await Run(provider, "demo.parallel", "ok");
         Assert.Contains(result.Breadcrumbs, breadcrumb =>
             breadcrumb.Kind == "Transition" && breadcrumb.NodeId == "fork" &&
             breadcrumb.Intention == "@spawn" && breadcrumb.RelatedNodeId == "beta");
