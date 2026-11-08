@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Arcanum.Demo.Api;
 using Arcanum.Framework;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,17 +17,36 @@ public sealed class ParallelExecutionTests
             Exception? exception, Func<TState, Exception?, string> formatter) { }
     }
 
-    private static ServiceProvider Provider(bool trace = false, int maxSnapshotBytes = 65536)
+    private sealed class ExceptionRecordingLogger<T> : ILogger<T>
+    {
+        private readonly ConcurrentQueue<Exception> _exceptions = new();
+        public IReadOnlyList<Exception> Exceptions => _exceptions.ToArray();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => true;
+        public void Log<TState>(LogLevel level, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (exception is not null)
+                _exceptions.Enqueue(exception);
+        }
+    }
+
+    private static ServiceProvider Provider(
+        bool trace = false, int maxSnapshotBytes = 65536,
+        ILogger<CapabilityResolver>? customLogger = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddScoped<IExecutionProbe, ExecutionProbe>();
+        services.AddScoped<ParallelFaultGate>();
         services.AddArcanumFramework(typeof(ValidateProcess).Assembly);
         services.Configure<CapabilityOptions>(o => o.MaxTraceSnapshotBytes = maxSnapshotBytes);
         services.AddArcanumCapabilitiesFromDirectory(
             Path.Combine(AppContext.BaseDirectory, "capabilities"));
         if (trace)
             services.AddSingleton<ILogger<CapabilityResolver>>(new EnabledTraceLogger<CapabilityResolver>());
+        if (customLogger is not null)
+            services.AddSingleton(customLogger);
         return services.BuildServiceProvider(validateScopes: true);
     }
 
@@ -188,6 +208,56 @@ public sealed class ParallelExecutionTests
         var completed = Assert.Single(trail, b => b.Kind == "CapabilityCancelled");
         Assert.DoesNotContain(trail, b =>
             b.Sequence > completed.Sequence && b.Kind is "Started" or "Completed" or "Cancelled");
+    }
+
+    [Fact]
+    public void Graph_spawn_edges_are_system_intentions_not_process_intentions()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "capabilities", "demo.parallel.json");
+        var graph = CapabilityCatalog.ParseJson(File.ReadAllText(path)).Graph;
+        var targets = graph.Matching("fork", "ready");
+        Assert.Equal(2, targets.Length);
+        Assert.Single(targets, edge => edge.Intention == "@spawn" && edge.To == "beta");
+        Assert.Single(targets, edge => edge.Intention == "ready" && edge.To == "alpha");
+    }
+
+    [Fact]
+    public async Task Process_fault_immediately_cancels_and_logs_every_parallel_exception()
+    {
+        var recorder = new ExceptionRecordingLogger<CapabilityResolver>();
+        using var provider = Provider(customLogger: recorder);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Run(provider, "demo.parallel-failure", "valid"));
+
+        Assert.Equal("alpha failure", error.Message);
+        Assert.Contains(recorder.Exceptions, e => e is InvalidOperationException
+            && e.Message == "alpha failure");
+        Assert.Contains(recorder.Exceptions, e => e is InvalidOperationException
+            && e.Message == "beta failure after cancellation");
+
+        var trail = Assert.IsAssignableFrom<IReadOnlyList<ExecutionBreadcrumb>>(
+            error.Data["Arcanum.Breadcrumbs"]);
+        var failedAlpha = Assert.Single(trail, e => e.NodeId == "alpha" && e.Kind == "Failed");
+        var failedBeta = Assert.Single(trail, e => e.NodeId == "beta" && e.Kind == "Failed");
+        var capabilityFailed = Assert.Single(trail, e => e.Kind == "CapabilityFailed");
+        Assert.True(capabilityFailed.Sequence > failedAlpha.Sequence);
+        Assert.True(capabilityFailed.Sequence > failedBeta.Sequence);
+        Assert.DoesNotContain(trail, e => e.NodeId == "join" && e.Kind == "Started");
+    }
+
+    [Fact]
+    public async Task Engine_transition_exception_is_logged_and_cancels_the_run()
+    {
+        var recorder = new ExceptionRecordingLogger<CapabilityResolver>();
+        using var provider = Provider(customLogger: recorder);
+        using var scope = provider.CreateScope();
+        var definition = CapabilityCatalog.ParseJson(File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.parallel.json")));
+        definition.Graph.Edges.RemoveAll(edge => edge.From == "fork" && edge.Intention == "ready");
+        // The catalog rejects a node with no business continuation, before execution.
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            new CapabilityCatalog([definition], provider.GetRequiredService<ProcessCatalog>(),
+                new CapabilityOptions()));
     }
 
 }

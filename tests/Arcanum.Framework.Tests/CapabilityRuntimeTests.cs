@@ -456,4 +456,38 @@ public class CapabilityRuntimeTests
         Assert.Throws<CapabilityDefinitionException>(() => CapabilityCatalog.ParseJson(invalid));
     }
 
+    [Fact]
+    public void Reserved_system_intentions_are_validated_at_load_time()
+    {
+        using var provider = CreateProvider();
+        var json = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.parallel.json"));
+        var original = CapabilityCatalog.ParseJson(json);
+        var spawn = Assert.Single(original.Graph.Edges,
+            e => e.Intention == CapabilityGraph.SpawnIntention);
+
+        spawn.Intention = "@spwan";
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            new CapabilityCatalog([original], provider.GetRequiredService<ProcessCatalog>(),
+                new CapabilityOptions()));
+
+        spawn.Intention = "@spawn";
+        spawn.To = "@complete";
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            new CapabilityCatalog([original], provider.GetRequiredService<ProcessCatalog>(),
+                new CapabilityOptions()));
+    }
+
+    [Fact]
+    public void Obsolete_parallel_flag_is_rejected_in_JSON()
+    {
+        var json = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.parallel.json"));
+        var invalid = json.Replace(
+            "\"intention\": \"@spawn\"",
+            "\"intention\": \"@spawn\", \"parallel\": true");
+        Assert.NotEqual(json, invalid);
+        Assert.Throws<CapabilityDefinitionException>(() => CapabilityCatalog.ParseJson(invalid));
+    }
+
 }

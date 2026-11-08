@@ -5,6 +5,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddLogging();
 builder.Services.AddScoped<IExecutionProbe, ExecutionProbe>();
+builder.Services.AddScoped<ParallelFaultGate>();
 builder.Services.AddArcanumFramework(typeof(ValidateProcess).Assembly);
 builder.Services.Configure<CapabilityOptions>(options =>
     options.DefaultMaxSteps = builder.Configuration.GetValue("Arcanum:DefaultMaxSteps", 100));
