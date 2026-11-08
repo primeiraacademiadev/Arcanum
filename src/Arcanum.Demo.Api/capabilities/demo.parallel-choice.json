@@ -117,7 +117,7 @@
       },
       {
         "from": "detached",
-        "intention": "finished",
+        "intention": "detached",
         "to": "@complete"
       }
     ]

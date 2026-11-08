@@ -167,8 +167,9 @@ For a convergent node, it analyses whether other pending/running node invocation
 can still reach it. New successors are published before recalculating joins.
 Both successful completion and failure/cancellation handling await all started
 Process invocations. On cancellation, a Process that ignores its token can hold
-up completion indefinitely. Multiple terminal arrivals with different directives
-or intentions currently fail rather than silently select an arbitrary result.
+up completion indefinitely. Multiple terminal arrivals with conflicting directives fail. If they reach the
+same directive with different intentions, the Capability's singular Intention
+is null and all individual intentions remain visible in its Execution Trail.
 
 The runtime holds a linked `CancellationToken` in its `ExecutionDataScope`,
 but **not** in the business data dictionary or the declarative input contract.

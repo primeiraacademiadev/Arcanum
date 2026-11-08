@@ -80,6 +80,7 @@ public sealed class ParallelExecutionTests
             Assert.True(join.Sequence < detachedEnd.Sequence);
             var capabilityEnd = Assert.Single(result.Breadcrumbs, b => b.Kind == "CapabilityCompleted");
             Assert.True(capabilityEnd.Sequence > detachedEnd.Sequence);
+            Assert.Null(result.Intention); // independent terminal branches used different intentions
             Assert.DoesNotContain(result.Breadcrumbs,
                 b => b.NodeId == "beta" && b.Kind == "Started");
         }

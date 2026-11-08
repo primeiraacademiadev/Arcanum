@@ -150,16 +150,24 @@ public sealed class CapabilityResolver(
                 throw new CapabilityTransitionException("Capability completed without a terminal edge.");
 
             var first = terminals[0];
-            if (terminals.Any(t => t.Terminal != first.Terminal || t.Intention != first.Intention))
+            if (terminals.Any(t => t.Terminal != first.Terminal))
                 throw new CapabilityTransitionException(
-                    "Concurrent branches produced conflicting terminal results.");
+                    "Concurrent branches produced conflicting terminal directives.");
 
+            var terminalIntentions = terminals.Select(t => t.Intention)
+                .Distinct(StringComparer.Ordinal).OrderBy(v => v, StringComparer.Ordinal).ToArray();
+            // A Capability has no single terminal intention when independent
+            // branches completed with different intentions. The trail retains both.
+            var finalIntention = terminalIntentions.Length == 1 ? terminalIntentions[0] : null;
             var output = definition.Contract.Responses.TryGetValue(first.Terminal, out var response)
                 ? dataResolver.ResolveOutput(data, response)
-                : first.Data;
-            trail.Add("CapabilityCompleted", intention: first.Intention, relatedNodeId: first.Terminal);
+                : terminals.Count == 1 ? first.Data : null;
+            trail.Add("CapabilityCompleted", intention: finalIntention, relatedNodeId: first.Terminal,
+                detail: terminalIntentions.Length > 1
+                    ? $"Independent terminal intentions: {string.Join(", ", terminalIntentions)}"
+                    : null);
             return new CapabilityExecutionResult(
-                name, definition.Version, first.Terminal, first.Intention, steps, output)
+                name, definition.Version, first.Terminal, finalIntention, steps, output)
             {
                 ExecutionId = executionId,
                 Breadcrumbs = trail.Snapshot()

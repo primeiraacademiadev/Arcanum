@@ -9,6 +9,6 @@ public sealed class ParallelDetachedProcess
     public async Task<ProcessResult<string>> ExecuteAsync(CancellationToken cancellationToken)
     {
         await Task.Delay(260, cancellationToken);
-        return new("detached", "finished");
+        return new("detached", "detached");
     }
 }
