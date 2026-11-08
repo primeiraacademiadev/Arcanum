@@ -38,53 +38,80 @@
     },
     "Arcanum.Demo.Api.ParallelOptionalJoinProcess": {
       "displayName": "Optional join"
+    },
+    "Arcanum.Demo.Api.ParallelStartProcess": {
+      "displayName": "Parallel start",
+      "description": "Passes validated data to a graph-controlled fan-out."
     }
   },
   "graph": {
-    "entry": "Arcanum.Demo.Api.ValidateProcess",
+    "entry": "validate",
+    "nodes": {
+      "validate": {
+        "process": "Arcanum.Demo.Api.ValidateProcess"
+      },
+      "fork": {
+        "process": "Arcanum.Demo.Api.ParallelStartProcess"
+      },
+      "alpha": {
+        "process": "Arcanum.Demo.Api.ParallelAlphaProcess"
+      },
+      "beta": {
+        "process": "Arcanum.Demo.Api.ParallelBetaProcess"
+      },
+      "choice": {
+        "process": "Arcanum.Demo.Api.ParallelChoiceProcess"
+      },
+      "detached": {
+        "process": "Arcanum.Demo.Api.ParallelDetachedProcess"
+      },
+      "join": {
+        "process": "Arcanum.Demo.Api.ParallelOptionalJoinProcess"
+      }
+    },
     "edges": [
       {
-        "from": "Arcanum.Demo.Api.ValidateProcess",
-        "intention": "valid",
-        "to": "Arcanum.Demo.Api.ParallelAlphaProcess"
-      },
-      {
-        "from": "Arcanum.Demo.Api.ValidateProcess",
-        "intention": "valid",
-        "to": "Arcanum.Demo.Api.ParallelChoiceProcess"
-      },
-      {
-        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "from": "validate",
         "intention": "invalid",
         "to": "@stop"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelChoiceProcess",
+        "from": "fork",
+        "intention": "ready",
+        "to": "alpha"
+      },
+      {
+        "from": "fork",
+        "to": "choice",
+        "parallel": true
+      },
+      {
+        "from": "choice",
         "intention": "include",
-        "to": "Arcanum.Demo.Api.ParallelBetaProcess"
+        "to": "beta"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelChoiceProcess",
+        "from": "choice",
         "intention": "skip",
-        "to": "Arcanum.Demo.Api.ParallelDetachedProcess"
+        "to": "detached"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelAlphaProcess",
+        "from": "alpha",
         "intention": "done",
-        "to": "Arcanum.Demo.Api.ParallelOptionalJoinProcess"
+        "to": "join"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelBetaProcess",
+        "from": "beta",
         "intention": "done",
-        "to": "Arcanum.Demo.Api.ParallelOptionalJoinProcess"
+        "to": "join"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelOptionalJoinProcess",
+        "from": "join",
         "intention": "finished",
         "to": "@complete"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelDetachedProcess",
+        "from": "detached",
         "intention": "finished",
         "to": "@complete"
       }

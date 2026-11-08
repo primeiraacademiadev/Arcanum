@@ -32,38 +32,59 @@
     },
     "Arcanum.Demo.Api.ParallelJoinProcess": {
       "displayName": "Join alpha and beta"
+    },
+    "Arcanum.Demo.Api.ParallelStartProcess": {
+      "displayName": "Parallel start",
+      "description": "Passes validated data to a graph-controlled fan-out."
     }
   },
   "graph": {
-    "entry": "Arcanum.Demo.Api.ValidateProcess",
+    "entry": "validate",
+    "nodes": {
+      "validate": {
+        "process": "Arcanum.Demo.Api.ValidateProcess"
+      },
+      "fork": {
+        "process": "Arcanum.Demo.Api.ParallelStartProcess"
+      },
+      "alpha": {
+        "process": "Arcanum.Demo.Api.ParallelAlphaProcess"
+      },
+      "beta": {
+        "process": "Arcanum.Demo.Api.ParallelBetaProcess"
+      },
+      "join": {
+        "process": "Arcanum.Demo.Api.ParallelJoinProcess"
+      }
+    },
     "edges": [
       {
-        "from": "Arcanum.Demo.Api.ValidateProcess",
-        "intention": "valid",
-        "to": "Arcanum.Demo.Api.ParallelAlphaProcess"
-      },
-      {
-        "from": "Arcanum.Demo.Api.ValidateProcess",
-        "intention": "valid",
-        "to": "Arcanum.Demo.Api.ParallelBetaProcess"
-      },
-      {
-        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "from": "validate",
         "intention": "invalid",
         "to": "@stop"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelAlphaProcess",
-        "intention": "done",
-        "to": "Arcanum.Demo.Api.ParallelJoinProcess"
+        "from": "fork",
+        "intention": "ready",
+        "to": "alpha"
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelBetaProcess",
-        "intention": "done",
-        "to": "Arcanum.Demo.Api.ParallelJoinProcess"
+        "from": "fork",
+        "to": "beta",
+        "parallel": true
       },
       {
-        "from": "Arcanum.Demo.Api.ParallelJoinProcess",
+        "from": "alpha",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "beta",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "join",
         "intention": "finished",
         "to": "@complete"
       }

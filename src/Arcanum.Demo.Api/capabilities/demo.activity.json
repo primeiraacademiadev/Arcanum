@@ -24,11 +24,18 @@
     }
   },
   "graph": {
-    "entry": "Arcanum.Demo.Api.EchoActivity",
-    "transitions": {
-      "Arcanum.Demo.Api.EchoActivity": {
-        "echoed": "@complete"
+    "entry": "echo",
+    "nodes": {
+      "echo": {
+        "process": "Arcanum.Demo.Api.EchoActivity"
       }
-    }
+    },
+    "edges": [
+      {
+        "from": "echo",
+        "intention": "echoed",
+        "to": "@complete"
+      }
+    ]
   }
 }

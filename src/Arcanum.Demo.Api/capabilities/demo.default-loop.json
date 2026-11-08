@@ -30,12 +30,23 @@
     }
   },
   "graph": {
-    "entry": "Arcanum.Demo.Api.CounterProcess",
-    "transitions": {
-      "Arcanum.Demo.Api.CounterProcess": {
-        "again": "Arcanum.Demo.Api.CounterProcess",
-        "complete": "@complete"
+    "entry": "counter",
+    "nodes": {
+      "counter": {
+        "process": "Arcanum.Demo.Api.CounterProcess"
       }
-    }
+    },
+    "edges": [
+      {
+        "from": "counter",
+        "intention": "again",
+        "to": "counter"
+      },
+      {
+        "from": "counter",
+        "intention": "complete",
+        "to": "@complete"
+      }
+    ]
   }
 }

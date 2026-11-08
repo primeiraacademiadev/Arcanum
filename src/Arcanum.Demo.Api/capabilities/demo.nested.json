@@ -36,18 +36,39 @@
     }
   },
   "graph": {
-    "entry": "Arcanum.Demo.Api.ValidateProcess",
-    "transitions": {
-      "Arcanum.Demo.Api.ValidateProcess": {
-        "valid": "Arcanum.Demo.Api.EnrichProcess",
-        "invalid": "@stop"
+    "entry": "validate",
+    "nodes": {
+      "validate": {
+        "process": "Arcanum.Demo.Api.ValidateProcess"
       },
-      "Arcanum.Demo.Api.EnrichProcess": {
-        "enriched": "Arcanum.Demo.Api.FinishProcess"
+      "enrich": {
+        "process": "Arcanum.Demo.Api.EnrichProcess"
       },
-      "Arcanum.Demo.Api.FinishProcess": {
-        "finished": "@complete"
+      "finish": {
+        "process": "Arcanum.Demo.Api.FinishProcess"
       }
-    }
+    },
+    "edges": [
+      {
+        "from": "validate",
+        "intention": "valid",
+        "to": "enrich"
+      },
+      {
+        "from": "validate",
+        "intention": "invalid",
+        "to": "@stop"
+      },
+      {
+        "from": "enrich",
+        "intention": "enriched",
+        "to": "finish"
+      },
+      {
+        "from": "finish",
+        "intention": "finished",
+        "to": "@complete"
+      }
+    ]
   }
 }
