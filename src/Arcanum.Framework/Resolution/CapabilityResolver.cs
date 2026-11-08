@@ -175,7 +175,7 @@ public sealed class CapabilityResolver(
                 foreach (var edge in targets)
                 {
                     trail.Add("Transition", completed.NodeId, completed.InvocationId,
-                        intention: result.Intention, relatedNodeId: edge.To,
+                        intention: edge.Intention, relatedNodeId: edge.To,
                         detail: edge.Intention == CapabilityGraph.SpawnIntention ? "spawn" : "conditional");
                     if (edge.To.StartsWith('@'))
                         terminals.Add(new TerminalArrival(edge.To, result.Intention, result.Data));

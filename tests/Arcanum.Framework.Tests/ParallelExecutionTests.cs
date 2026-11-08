@@ -219,6 +219,13 @@ public sealed class ParallelExecutionTests
         Assert.Equal(2, targets.Length);
         Assert.Single(targets, edge => edge.Intention == "@spawn" && edge.To == "beta");
         Assert.Single(targets, edge => edge.Intention == "ready" && edge.To == "alpha");
+        // The Process returns only "ready"; the resolver records the system
+        // intention separately on the outgoing graph transition.
+        using var provider = Provider();
+        var result = Run(provider, "demo.parallel", "ok").GetAwaiter().GetResult();
+        Assert.Contains(result.Breadcrumbs, breadcrumb =>
+            breadcrumb.Kind == "Transition" && breadcrumb.NodeId == "fork" &&
+            breadcrumb.Intention == "@spawn" && breadcrumb.RelatedNodeId == "beta");
     }
 
     [Fact]
