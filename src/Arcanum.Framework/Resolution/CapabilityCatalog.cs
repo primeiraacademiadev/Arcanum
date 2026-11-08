@@ -98,34 +98,33 @@ public sealed class CapabilityCatalog
         if (!definition.Processes.ContainsKey(definition.Graph.Entry))
             throw new CapabilityDefinitionException($"Unknown entry Process '{definition.Graph.Entry}'.");
 
-        var transitions = definition.Graph.Transitions ??
-            throw new CapabilityDefinitionException("Missing graph transitions.");
 
+        if (definition.Graph.Transitions is null || definition.Graph.Edges is null)
+            throw new CapabilityDefinitionException("Missing graph edges or transitions.");
+        if (definition.Graph.Edges.Count > 0 && definition.Graph.Transitions.Count > 0)
+            throw new CapabilityDefinitionException("Use either graph.edges or legacy graph.transitions.");
+
+        var edges = definition.Graph.AllEdges.ToArray();
         foreach (var name in definition.Processes.Keys)
-            if (!transitions.ContainsKey(name) || transitions[name] is null ||
-                transitions[name].Count == 0)
-                throw new CapabilityDefinitionException($"Process '{name}' has no transition mapping.");
+            if (!edges.Any(edge => edge.From == name))
+                throw new CapabilityDefinitionException($"Process '{name}' has no outgoing edge.");
 
-        foreach (var (source, mapping) in transitions)
+        foreach (var edge in edges)
         {
-            if (!definition.Processes.ContainsKey(source))
-                throw new CapabilityDefinitionException($"Transition source '{source}' is not a Process.");
+            if (!definition.Processes.ContainsKey(edge.From))
+                throw new CapabilityDefinitionException($"Edge source '{edge.From}' is not a Process.");
+            if (string.IsNullOrWhiteSpace(edge.Intention) || edge.Intention.StartsWith('@') ||
+                string.IsNullOrWhiteSpace(edge.To))
+                throw new CapabilityDefinitionException($"Invalid intention mapping on '{edge.From}'.");
 
-            foreach (var (intention, target) in mapping)
+            if (edge.To.StartsWith('@'))
             {
-                if (string.IsNullOrWhiteSpace(intention) || intention.StartsWith('@') ||
-                    string.IsNullOrWhiteSpace(target))
-                    throw new CapabilityDefinitionException($"Invalid intention mapping on '{source}'.");
-
-                if (target.StartsWith('@'))
-                {
-                    if (target is not ("@stop" or "@complete" or "@fail"))
-                        throw new CapabilityDefinitionException($"Unsupported graph directive '{target}'.");
-                }
-                else if (!definition.Processes.ContainsKey(target))
-                    throw new CapabilityDefinitionException(
-                        $"Target Process '{target}' of '{source}' is not registered.");
+                if (edge.To is not ("@stop" or "@complete" or "@fail"))
+                    throw new CapabilityDefinitionException($"Unsupported graph directive '{edge.To}'.");
             }
+            else if (!definition.Processes.ContainsKey(edge.To))
+                throw new CapabilityDefinitionException(
+                    $"Target Process '{edge.To}' of '{edge.From}' is not registered.");
         }
 
         ValidateContract(definition, catalog);
@@ -199,8 +198,7 @@ public sealed class CapabilityCatalog
                     $"Contract response '{terminal}' must reference a produced result with its exact type.");
         }
 
-        foreach (var terminal in definition.Graph.Transitions.Values
-                     .SelectMany(mapping => mapping.Values)
+        foreach (var terminal in definition.Graph.AllEdges.Select(edge => edge.To)
                      .Where(target => target is "@complete" or "@stop")
                      .Distinct(StringComparer.Ordinal))
             if (!contract.Responses.ContainsKey(terminal))

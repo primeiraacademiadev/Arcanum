@@ -138,3 +138,54 @@ No endpoint-specific DTO translation or extra per-Capability mapping code is
 required. The PoC supports body root `$`, simple property paths `$.name`,
 constant defaults and typed terminal results; complex mappings, source
 converters, authentication and automatic OpenAPI generation are future work.
+
+## Async graph and execution trail experiment (November 2026)
+
+Two additional demo Capabilities exercise graph-level fan-out and dynamic joins:
+
+- `demo.parallel`: validation activates two concurrent async Processes; a join fires
+  once, after **both** reach it.
+- `demo.parallel-choice`: validation activates two branches; a decision may send the
+  right branch to an independent terminal instead of the join. The join then waits
+  only for branches that can still reach it; the Capability still waits for the
+  detached terminal branch before returning.
+
+The new `graph.edges` array declares `{from, intention, to}` edges separately
+from Process metadata. Multiple edges may have the same source and intention.
+Old `graph.transitions` dictionaries remain supported, but must not coexist with
+`edges` in the same Capability. Neither `ProcessResult` nor the Process class
+defines paths or asks for parallel execution. There are no `PathActivation`
+objects or explicit `Fork`/`Join` nodes.
+
+The resolver schedules each selected node asynchronously, tracks in-flight and
+queued work, uses potential reachability for synchronization, and publishes all
+successors before checking a join again. A join consumes the available arrivals
+once no other in-flight or pending branch can still reach it. The global terminal
+result is returned only after all scheduled work has completed. Multiple
+incompatible terminal arrivals fail explicitly. `MaxSteps` counts scheduled
+Process invocations, including concurrent invocations.
+
+Every successful `CapabilityExecutionResult` exposes an internal
+`ExecutionId` and `Breadcrumbs` property with event sequence, timestamps,
+elapsed time, thread ID, Process method, Process invocation ID, transitions,
+waiting decisions, and duration. The breadcrumb array is intentionally
+`[JsonIgnore]` so an HTTP endpoint does not leak diagnostics to clients.
+When `ILogger<CapabilityResolver>.IsEnabled(LogLevel.Trace)` is true, Started
+and Completed events also include **serialized copies** of Process inputs and
+outputs. CancellationToken and injected infrastructure are not captured.
+Trace snapshots redact configured property names and discard oversize payloads
+rather than leaking partial JSON. Trace is still sensitive operational data:
+protect storage and access; field-name redaction is not a universal PII scrubber.
+
+```sh
+dotnet test Arcanum.slnx --filter FullyQualifiedName~ParallelExecutionTests
+curl -sS http://localhost:5000/capabilities/demo.parallel/execute \\
+  -H 'Content-Type: application/json' -d '{"value":"hello"}'
+```
+
+Caveats for this PoC: reachability is conservative while a node is executing;
+arbitrary cyclic join dependencies still need a formal privacy/topology proof.
+The shared execution data scope is written only by the resolver, but mutable
+objects passed to concurrent Processes must themselves be treated as immutable
+or synchronized. Traces expose scheduler-observed order, not a global physical
+clock or deterministic replay. No durable breadcrumb sink has yet been added.

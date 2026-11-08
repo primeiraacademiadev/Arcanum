@@ -10,12 +10,14 @@ public sealed class ProcessDescriptor
 
     private ProcessDescriptor(
         Type processType,
+        string methodName,
         ArgumentBinding[] parameters,
         Type returnDataType,
         string? returnName,
         Func<object, object?[], ValueTask<IProcessResult>> invoke)
     {
         ProcessType = processType;
+        MethodName = methodName;
         Parameters = parameters;
         ReturnDataType = returnDataType;
         ReturnName = returnName;
@@ -23,6 +25,7 @@ public sealed class ProcessDescriptor
     }
 
     public Type ProcessType { get; }
+    public string MethodName { get; }
     public IReadOnlyList<ArgumentBinding> Parameters { get; }
     public Type ReturnDataType { get; }
     public string? ReturnName { get; }
@@ -111,6 +114,7 @@ public sealed class ProcessDescriptor
 
         return new ProcessDescriptor(
             type,
+            method.Name,
             parameters,
             resultType,
             returnName,

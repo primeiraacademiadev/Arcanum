@@ -1,0 +1,93 @@
+{
+  "name": "demo.parallel-choice",
+  "displayName": "Conditional parallel join",
+  "version": 1,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "combined",
+        "type": "System.String"
+      },
+      "@stop": {
+        "name": "validated",
+        "type": "Arcanum.Demo.Api.ValidationData"
+      }
+    }
+  },
+  "processes": {
+    "Arcanum.Demo.Api.ValidateProcess": {
+      "displayName": "Validate input"
+    },
+    "Arcanum.Demo.Api.ParallelAlphaProcess": {
+      "displayName": "Concurrent alpha"
+    },
+    "Arcanum.Demo.Api.ParallelBetaProcess": {
+      "displayName": "Concurrent beta"
+    },
+    "Arcanum.Demo.Api.ParallelChoiceProcess": {
+      "displayName": "Choose branch"
+    },
+    "Arcanum.Demo.Api.ParallelDetachedProcess": {
+      "displayName": "Detached branch"
+    },
+    "Arcanum.Demo.Api.ParallelOptionalJoinProcess": {
+      "displayName": "Optional join"
+    }
+  },
+  "graph": {
+    "entry": "Arcanum.Demo.Api.ValidateProcess",
+    "edges": [
+      {
+        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "intention": "valid",
+        "to": "Arcanum.Demo.Api.ParallelAlphaProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "intention": "valid",
+        "to": "Arcanum.Demo.Api.ParallelChoiceProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "intention": "invalid",
+        "to": "@stop"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelChoiceProcess",
+        "intention": "include",
+        "to": "Arcanum.Demo.Api.ParallelBetaProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelChoiceProcess",
+        "intention": "skip",
+        "to": "Arcanum.Demo.Api.ParallelDetachedProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelAlphaProcess",
+        "intention": "done",
+        "to": "Arcanum.Demo.Api.ParallelOptionalJoinProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelBetaProcess",
+        "intention": "done",
+        "to": "Arcanum.Demo.Api.ParallelOptionalJoinProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelOptionalJoinProcess",
+        "intention": "finished",
+        "to": "@complete"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelDetachedProcess",
+        "intention": "finished",
+        "to": "@complete"
+      }
+    ]
+  }
+}

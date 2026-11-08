@@ -1,0 +1,72 @@
+{
+  "name": "demo.parallel",
+  "displayName": "Parallel fork and dynamic join",
+  "version": 1,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "combined",
+        "type": "System.String"
+      },
+      "@stop": {
+        "name": "validated",
+        "type": "Arcanum.Demo.Api.ValidationData"
+      }
+    }
+  },
+  "processes": {
+    "Arcanum.Demo.Api.ValidateProcess": {
+      "displayName": "Validate input"
+    },
+    "Arcanum.Demo.Api.ParallelAlphaProcess": {
+      "displayName": "Concurrent alpha"
+    },
+    "Arcanum.Demo.Api.ParallelBetaProcess": {
+      "displayName": "Concurrent beta"
+    },
+    "Arcanum.Demo.Api.ParallelJoinProcess": {
+      "displayName": "Join alpha and beta"
+    }
+  },
+  "graph": {
+    "entry": "Arcanum.Demo.Api.ValidateProcess",
+    "edges": [
+      {
+        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "intention": "valid",
+        "to": "Arcanum.Demo.Api.ParallelAlphaProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "intention": "valid",
+        "to": "Arcanum.Demo.Api.ParallelBetaProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ValidateProcess",
+        "intention": "invalid",
+        "to": "@stop"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelAlphaProcess",
+        "intention": "done",
+        "to": "Arcanum.Demo.Api.ParallelJoinProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelBetaProcess",
+        "intention": "done",
+        "to": "Arcanum.Demo.Api.ParallelJoinProcess"
+      },
+      {
+        "from": "Arcanum.Demo.Api.ParallelJoinProcess",
+        "intention": "finished",
+        "to": "@complete"
+      }
+    ]
+  }
+}
