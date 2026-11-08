@@ -92,7 +92,7 @@ public sealed class ParallelExecutionTests
         }
         Assert.Equal("@complete", result.Terminal);
         Assert.Equal(value.ToUpperInvariant(), result.Data);
-        Assert.Equal(5, result.Steps);
+        Assert.Equal(6, result.Steps);
     }
 
     [Fact]
