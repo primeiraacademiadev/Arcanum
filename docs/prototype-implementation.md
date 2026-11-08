@@ -139,43 +139,59 @@ required. The PoC supports body root `$`, simple property paths `$.name`,
 constant defaults and typed terminal results; complex mappings, source
 converters, authentication and automatic OpenAPI generation are future work.
 
-## Async graph and execution trail experiment (November 2026)
+## Async graph execution and diagnostics (November 2026)
 
-Two additional demo Capabilities exercise graph-level fan-out and dynamic joins:
+The experimental JSON schema distinguishes **Process classes** in `processes`
+from **graph-local node IDs** in `graph.nodes`. The `graph.entry` and each
+`graph.edges` endpoint use those IDs; a CLR Process class may be referenced by
+several distinct nodes and a node may be visited repeatedly. `NodeExecutionId`
+is generated per invocation at runtime, never declared in the graph.
 
-- `demo.parallel`: validation activates two concurrent async Processes; a join fires
-  once, after **both** reach it.
-- `demo.parallel-choice`: validation activates two branches; a decision may send the
-  right branch to an independent terminal instead of the join. The join then waits
-  only for branches that can still reach it; the Capability still waits for the
-  detached terminal branch before returning.
+The `graph.edges` collection permits one conditional edge per `(from, intention)`
+pair. **Duplicate intention edges are invalid.** A separate edge such as
+`{"from":"fork","parallel":true,"to":"beta"}` is unconditional and activates
+independently of the ProcessResult's single intention. It can run alongside the
+selected conditional continuation. There are no special Fork/Join/Path objects
+or PathActivation records. All outgoing scheduling occurs asynchronously.
 
-The new `graph.edges` array declares `{from, intention, to}` edges separately
-from Process metadata. Multiple edges may have the same source and intention.
-Old `graph.transitions` dictionaries remain supported, but must not coexist with
-`edges` in the same Capability. Neither `ProcessResult` nor the Process class
-defines paths or asks for parallel execution. There are no `PathActivation`
-objects or explicit `Fork`/`Join` nodes.
+- `demo.parallel`: validation selects a single continuation into a fan-out
+  step. One conditional and one unconditional parallel edge run two async
+  Processes; a convergent node executes once after both reach it.
+- `demo.parallel-choice`: one parallel branch conditionally stops reaching
+  the join and follows a detached terminal path. The join can proceed while
+  that path is active, **but the Capability still waits for the detached Process**
+  before returning.
 
-The resolver schedules each selected node asynchronously, tracks in-flight and
-queued work, uses potential reachability for synchronization, and publishes all
-successors before checking a join again. A join consumes the available arrivals
-once no other in-flight or pending branch can still reach it. The global terminal
-result is returned only after all scheduled work has completed. Multiple
-incompatible terminal arrivals fail explicitly. `MaxSteps` counts scheduled
-Process invocations, including concurrent invocations.
+The resolver keeps all scheduled/running work in its own execution context.
+For a convergent node, it analyses whether other pending/running node invocations
+can still reach it. New successors are published before recalculating joins.
+Both successful completion and failure/cancellation handling await all started
+Process invocations. On cancellation, a Process that ignores its token can hold
+up completion indefinitely. Multiple terminal arrivals with different directives
+or intentions currently fail rather than silently select an arbitrary result.
 
-Every successful `CapabilityExecutionResult` exposes an internal
-`ExecutionId` and `Breadcrumbs` property with event sequence, timestamps,
-elapsed time, thread ID, Process method, Process invocation ID, transitions,
-waiting decisions, and duration. The breadcrumb array is intentionally
-`[JsonIgnore]` so an HTTP endpoint does not leak diagnostics to clients.
-When `ILogger<CapabilityResolver>.IsEnabled(LogLevel.Trace)` is true, Started
-and Completed events also include **serialized copies** of Process inputs and
-outputs. CancellationToken and injected infrastructure are not captured.
-Trace snapshots redact configured property names and discard oversize payloads
-rather than leaking partial JSON. Trace is still sensitive operational data:
-protect storage and access; field-name redaction is not a universal PII scrubber.
+The runtime holds a linked `CancellationToken` in its `ExecutionDataScope`,
+but **not** in the business data dictionary or the declarative input contract.
+It is injected into `ExecuteAsync` parameters and checked before every
+scheduled invocation and again after each completion. `maxSteps` counts all
+Process invocations; `maxDepth` independently caps causal graph depth,
+including loops. Neither limit proves that arbitrary cyclic joins cannot
+deadlock.
+
+Business inputs and DI scoped resources are shared by parallel Processes,
+**without copies, locking or implicit isolation**. Interference and
+nondeterministic mutations are **accepted properties** of this prototype,
+to be understood by Process implementers; snapshots in Trace can reveal them.
+
+`ExecutionTrail` is append-only and thread-safe. Its breadcrumbs contain
+NodeId, NodeExecutionId, causal source invocation ID, sequence, timestamps,
+elapsed duration, thread ID, method, transitions, wait/ready status and outcomes.
+At effective `ILogger<CapabilityResolver>.IsEnabled(LogLevel.Trace)`, it also
+captures redacted, size-bounded serialized input/output snapshots (not injected
+resources). Success results hold the trail internally with `[JsonIgnore]`;
+failures expose the trail through `exception.Data["Arcanum.Breadcrumbs"]`
+and the run ID through `exception.Data["Arcanum.ExecutionId"]`.
+No persistent trail sink is implemented.
 
 ```sh
 dotnet test Arcanum.slnx --filter FullyQualifiedName~ParallelExecutionTests
@@ -183,9 +199,5 @@ curl -sS http://localhost:5000/capabilities/demo.parallel/execute \\
   -H 'Content-Type: application/json' -d '{"value":"hello"}'
 ```
 
-Caveats for this PoC: reachability is conservative while a node is executing;
-arbitrary cyclic join dependencies still need a formal privacy/topology proof.
-The shared execution data scope is written only by the resolver, but mutable
-objects passed to concurrent Processes must themselves be treated as immutable
-or synchronized. Traces expose scheduler-observed order, not a global physical
-clock or deterministic replay. No durable breadcrumb sink has yet been added.
+Outbox-backed publishing and framework-generated integration executors were
+discussed separately, but are **not** implemented by this graph runtime change.

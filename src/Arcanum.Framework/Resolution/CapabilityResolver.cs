@@ -125,10 +125,11 @@ public sealed class CapabilityResolver(
                 dataResolver.Store(data, nodeConfig.SaveResultAs ??
                     metadata.SaveResultAs ?? descriptorOfResult.ReturnName!, result);
 
-                var targets = definition.Graph.Matching(completed.NodeId, result.Intention);
-                if (targets.Length == 0)
+                if (!definition.Graph.Edges.Any(edge =>
+                    edge.From == completed.NodeId && !edge.Parallel && edge.Intention == result.Intention))
                     throw new CapabilityTransitionException(
                         $"Node '{completed.NodeId}' returned unmapped intention '{result.Intention}'.");
+                var targets = definition.Graph.Matching(completed.NodeId, result.Intention);
 
                 // Publish ALL selected successors before re-evaluating pending joins.
                 // Parallel edges do not depend on the ProcessResult intention.

@@ -113,8 +113,9 @@ public sealed class CapabilityCatalog
                 throw new CapabilityDefinitionException($"Invalid graph node '{id}' or undeclared Process.");
             if (node.SaveResultAs is not null && string.IsNullOrWhiteSpace(node.SaveResultAs))
                 throw new CapabilityDefinitionException($"Node '{id}' has an empty saveResultAs.");
-            if (!definition.Graph.Edges.Any(edge => edge.From == id))
-                throw new CapabilityDefinitionException($"Node '{id}' has no outgoing edge.");
+            if (!definition.Graph.Edges.Any(edge => edge.From == id && !edge.Parallel))
+                throw new CapabilityDefinitionException(
+                    $"Node '{id}' needs at least one intention-based continuation.");
         }
 
         var conditional = new HashSet<(string Node, string Intention)>();

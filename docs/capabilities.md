@@ -1,75 +1,140 @@
 # Arcanum — Capabilities, Processes and Graph Runtime
 
-Status: **design proposal** · 2026-11-07. Runtime implementation and JSON schema must be validated by a small executable spike.
+Status: **experimental runtime prototype** · updated 2026-11-08. The graph and Process contracts below describe the current PoC, not a production workflow service.
 
 ## Design principles
 
 Arcanum describes a Capability as a versioned executable **process graph** in the same solution as the .NET code, to make AI-assisted development traceable and understandable.
 
-- **Process identity**: CLR `Type.FullName` (namespace + class), without an extra business alias or mandatory `[Process]` attribute.
-- **Presentation**: `displayName` (required) and `description` (recommended) explain the intended behavior of each Process and Capability.
-- **Process catalog vs graph**: define Processes/metadata once; define entry and intention-driven connections separately. Avoid verbose explicit edge objects.
-- **Repeated execution**: Process instances must hold no cross-execution business state. The same Process may be visited multiple times during graph traversal, including in cycles. A Process class name acts as a **graph node key** with one transition table per key; independent nodes with different transitions but the same implementation would require a separate occurrence identity in the future.
-- **Safety**: every invocation has a bounded `maxSteps` counter that prevents endless navigation.
-- **Two-way development**: code can generate Process metadata/catalog; a process graph can scaffold missing Process classes/contracts/tests. Graph remains authority for *connections*, implementation for *behavior*.
-- **One delivery unit**: graph JSON and corresponding .NET implementation are versioned/tested together in the monorepo. No arbitrary code loading from JSON.
+- **Process identity**: CLR `Type.FullName`, resolved only in trusted assemblies and declared in the Capability catalog.
+- **Node identity**: a unique graph-local `NodeId`; several nodes may reference the same Process class.
+- **Execution identity**: `NodeExecutionId` is generated per invocation **by the runtime** and never declared in graph JSON.
+- **Presentation**: Process `displayName` and `description` describe code; nodes select the implementation.
+- **Topology**: `graph.nodes` and `graph.edges` are independent declarations, not edges embedded in Processes or nodes.
+- **Intentions**: `ProcessResult<T>` has a single intention; each node permits at most one conditional edge for that intention.
+- **Parallelism**: separate `parallel: true` edges have no intention and are selected independently of the Process result; the Process does not spawn work.
+- **Limits**: `maxSteps` caps total invocations; `maxDepth` caps the longest causal chain. They are different budgets.
+- **Scope**: execution data and DI scope are shared across parallel Processes. Mutable-object interference is an **accepted, documented effect**, not prevented by the framework.
+- **Source of truth**: JSON owns graph connectivity, CLR Process methods own behavior; both are versioned together.
 
 ## Example JSON — Processes separated from graph
 
 ```json
 {
-  "name": "arca.audit.publish",
-  "displayName": "Publicação de eventos de auditoria",
-  "description": "Valida, classifica e regista eventos enviados por produtores autorizados.",
+  "name": "demo.parallel",
+  "displayName": "Execução paralela com convergência",
   "version": 1,
-  "maxSteps": 100,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "combined",
+        "type": "System.String"
+      },
+      "@stop": {
+        "name": "validated",
+        "type": "Arcanum.Demo.Api.ValidationData"
+      }
+    }
+  },
   "processes": {
-    "Arcanum.Arca.Processes.ValidateAuditProcess": {
-      "displayName": "Validar evento",
-      "description": "Verifica o contrato e os dados obrigatórios."
+    "Arcanum.Demo.Api.ValidateProcess": {
+      "displayName": "Validar"
     },
-    "Arcanum.Arca.Processes.ClassifyAuditProcess": {
-      "displayName": "Classificar evento",
-      "description": "Resolve o nível de acesso do evento e dos detalhes."
+    "Arcanum.Demo.Api.ParallelStartProcess": {
+      "displayName": "Iniciar passo"
     },
-    "Arcanum.Arca.Processes.PersistAuditProcess": {
-      "displayName": "Persistir evento",
-      "description": "Regista o evento de forma transacional e idempotente."
+    "Arcanum.Demo.Api.ParallelAlphaProcess": {
+      "displayName": "Alpha"
+    },
+    "Arcanum.Demo.Api.ParallelBetaProcess": {
+      "displayName": "Beta"
+    },
+    "Arcanum.Demo.Api.ParallelJoinProcess": {
+      "displayName": "Convergir"
     }
   },
   "graph": {
-    "entry": "Arcanum.Arca.Processes.ValidateAuditProcess",
-    "transitions": {
-      "Arcanum.Arca.Processes.ValidateAuditProcess": {
-        "valid": "Arcanum.Arca.Processes.ClassifyAuditProcess",
-        "invalid": "@stop"
+    "entry": "validate",
+    "nodes": {
+      "validate": {
+        "process": "Arcanum.Demo.Api.ValidateProcess"
       },
-      "Arcanum.Arca.Processes.ClassifyAuditProcess": {
-        "classified": "Arcanum.Arca.Processes.PersistAuditProcess"
+      "fork": {
+        "process": "Arcanum.Demo.Api.ParallelStartProcess"
       },
-      "Arcanum.Arca.Processes.PersistAuditProcess": {
-        "stored": "@complete"
+      "alpha": {
+        "process": "Arcanum.Demo.Api.ParallelAlphaProcess"
+      },
+      "beta": {
+        "process": "Arcanum.Demo.Api.ParallelBetaProcess"
+      },
+      "join": {
+        "process": "Arcanum.Demo.Api.ParallelJoinProcess"
       }
-    }
+    },
+    "edges": [
+      {
+        "from": "validate",
+        "intention": "valid",
+        "to": "fork"
+      },
+      {
+        "from": "validate",
+        "intention": "invalid",
+        "to": "@stop"
+      },
+      {
+        "from": "fork",
+        "intention": "ready",
+        "to": "alpha"
+      },
+      {
+        "from": "fork",
+        "parallel": true,
+        "to": "beta"
+      },
+      {
+        "from": "alpha",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "beta",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "join",
+        "intention": "finished",
+        "to": "@complete"
+      }
+    ]
   }
 }
 ```
 
 This is an **illustrative fragment**; actual audit ingestion also needs producer authentication, deduplication, conflict branches and integration tests. A compact form or generated Process metadata may reduce JSON duplication later.
 
-### Identity, edges and presentation
+### Node and execution identity
 
-- The **key in `processes`** is the technical Process class name.
-- The **key in `graph.transitions`** is the current Process class; each intention maps to the next class or a reserved directive.
-- A Process can occur repeatedly **through navigation** (e.g. a loop returning to the same class); execution count is not part of the class identity.
-- `displayName` provides the human-oriented label shown in graph diagrams; the class name remains available in technical details.
-- If a future Capability truly needs two *different transition maps* for two occurrences of the same class, introduce an optional occurrence ID then; this is not a barrier to repeated execution now.
+- `processes` keys are full CLR class names and are the only types the loader may register.
+- `graph.nodes` keys are **stable, unique NodeIds** in the Capability, associated with `process` and optional per-node `saveResultAs`.
+- `graph.entry` and the `from`/`to` endpoints in `graph.edges` reference those IDs. Reserved `@complete`, `@stop`, `@fail` are terminal destinations.
+- `intention` edges are unique for each `(from, intention)` pair. A `parallel: true` edge has **no intention**; it is launched in parallel with the one selected continuation whenever its source node completes.
+- Neither `NodeExecutionId` nor `PathActivation` belongs to the graph specification. The resolver assigns a new invocation ID on each visit and records causal links in breadcrumbs.
+- Multiple visits to a node, including loops, are allowed and count separately against both depth and total-step budgets.
 
 ## Resolvers
 
 | Component | Responsibilities |
 | --- | --- |
-| `CapabilityResolver` | Load validated immutable graph plan, track current node and per-invocation step budget, execute intentions/transitions, return Capability result and tracing |
+| `CapabilityResolver` | Schedule graph-local nodes asynchronously, coordinate outstanding work and potential joins, enforce depth/step limits, propagate cancellation and preserve execution breadcrumbs |
 | `ProcessResolver` | Map trusted `Type.FullName` to CLR type in explicitly registered assemblies, instantiate via the current Host DI scope, cache method invocation descriptors |
 | `DataResolver` | Bind named typed execution data to `Execute`/`ExecuteAsync` arguments and store typed Process results in a per-invocation DataScope |
 
@@ -77,7 +142,7 @@ This is an **illustrative fragment**; actual audit ingestion also needs producer
 
 Host infrastructure lives in **one .NET DI root**, with an appropriate resource scope per invocation. For HTTP, normally use `HttpContext.RequestServices`; for Workers, create a new scope per message. All Processes in one Capability execution use the same scope for Unit of Work consistency.
 
-Execution data lives in a separate **logical resolution domain**, not necessarily another `IServiceProvider`. DataScope is unique to the invocation and thread/concurrency-safe by isolation. Avoid capturing invocation state in singleton Process instances. A stateless Process may still have scoped repository dependencies and therefore must be constructed/resolved with compatible lifetime.
+Execution data lives in a shared **logical runtime context** per Capability invocation. It contains named data and the runtime `CancellationToken` (not as a named business value and never in JSON). The resolver is the sole writer of named results, but parallel Processes can receive references to the **same mutable objects** and the same scoped resources. This interference is accepted: the framework makes no implicit copies, locks, isolation or thread-safety guarantees for business data and injected services. Process authors must evaluate the consequences. Trace breadcrumbs help diagnose overlap.
 
 ### Process method contract (proposed)
 
@@ -171,46 +236,22 @@ remain stable so folder refactoring does not break graph references.
 
 ### Intentions and reserved directives
 
-- Local Process intentions: `valid`, `invalid`, `duplicate`, `classified`; lookup is relative to the current Process's transition map.
-- Reserved graph targets prefixed by `@`: proposed `@next`, `@complete`, `@stop`, `@fail`; `@retry` is reserved and unsupported in V1. These are **directives at the transition destination**, not general business intentions emitted by Processes.
+- Local Process intentions: `valid`, `invalid`, `duplicate`, `classified`; each outcome matches at most one conditional edge from the current **NodeId**. `parallel: true` edges are unconditional and independent of the intention.
+- Reserved graph targets prefixed by `@`: implemented `@complete`, `@stop`, `@fail`; `@retry` and `@next` are not implemented. These are **directives at the transition destination**, not general business intentions emitted by Processes.
 - The dot `.` qualifies names, e.g. `arca.audit.publish.duplicate`, when needed by observers or inter-Capability contracts, without coupling a reused Process to its owner.
 - Unknown intentions/unmapped edges fail safely and are observed, never silently ignored.
 
-## Bounded graph navigation — mandatory protection
+## Execution, completion and budgets
 
-**Count Process executions / visited nodes, not only unique paths.** A loop can revisit the same node without increasing distinct paths. `maxSteps` is an **optional positive integer override on each Capability**. The framework provides a configurable `CapabilityOptions.DefaultMaxSteps` (initial default **100**). The effective limit is `Capability.MaxSteps ?? CapabilityOptions.DefaultMaxSteps`. A host may additionally configure an upper bound as a separate safety policy, but an upper-bound rule is **not yet required for V1**.
+`maxSteps` (or `CapabilityOptions.DefaultMaxSteps`, default 100) caps **total scheduled Process invocations** across all branches. `maxDepth` (or `CapabilityOptions.DefaultMaxDepth`, default 100) independently caps **causal depth**, starting at 1 for the entry; for a join use the maximum depth of its arrivals plus one. Neither limit implies isolation or eliminates every possible waiting deadlock.
 
-Invariant for the **effective** limit `N`: at most **N Process invocations** may start. Before starting Process invocation `N+1`, throw `CapabilityExecutionLimitExceededException`, containing sanitized diagnostics such as Capability ID, version, limit and next Process name. The trace records transitions up to the limit without logging sensitive data. A normal terminal after exactly N calls is allowed.
+The `CapabilityResolver` schedules all eligible outgoing edges asynchronously after storing the completed Process output. A node with one incoming edge can run immediately; a node with several incoming edges waits while any other **pending or running** execution can still reach it. When an alternative path becomes impossible, the wait is recalculated. The resolver follows all started work and **never returns a Capability result before its running and queued work settles**. Concurrent terminal arrivals must currently agree on terminal directive and intention, otherwise the run fails explicitly.
 
-Applies also if a Process routes to itself. Reject invalid/zero/negative overrides and framework defaults at startup; a missing override is valid. Use cancellation/timeout separately to guard a single long-running or blocked Process; the step counter only protects navigation.
+The linked `CancellationToken` is held in the runtime data scope, supplied to Process methods, checked before **each** new invocation and again **after** each completed invocation before scheduling successors. On exception or cancellation, the resolver signals cancellation and awaits all already started work before rethrowing. A non-cooperative Process may therefore delay cancellation indefinitely; the framework cannot forcibly stop user code. No external side effect is rolled back automatically.
 
-Limit-exceeded is a runtime failure, **not** a business intention and **not** an automatic retry. It does not magically reverse previously committed writes: the Unit of Work/transaction boundaries must be explicit, and side-effecting Processes must be idempotent where re-execution is possible. Nested Capabilities can receive their own budgets; a global execution budget across nested invocations is future design if such composition is introduced.
+`ExecutionTrail` records the scheduler-observed order, node and invocation IDs, start/end time and elapsed duration, thread ID, causal transitions, join waits, failures and cancellation. At effective `Trace` level it snapshots serializable business method inputs/outputs with configured name-based redaction and size cap. It does **not** serialize injected infrastructure or the token. On success the breadcrumbs are attached to the result with `[JsonIgnore]`; on exception they are available as `exception.Data["Arcanum.Breadcrumbs"]`, with `Arcanum.ExecutionId` for correlation. These diagnostics are not a globally synchronized physical clock.
 
-### Runtime outline
-
-```text
-plan = CapabilityCatalog.GetValidated(name, version)
-resources = current HTTP request scope OR new worker/message scope
-data = DataResolver.CreateExecutionScope(input)
-steps = 0
-maxSteps = plan.MaxSteps ?? frameworkOptions.DefaultMaxSteps
-node = plan.Graph.Entry
-
-while node is Process:
-    if steps >= maxSteps:
-        throw CapabilityExecutionLimitExceededException(...)
-    steps++
-    process = ProcessResolver.Resolve(node, resources)
-    args = DataResolver.Bind(process.ExecutionDescriptor, data)
-    (result, intention) = await ProcessResolver.Invoke(process, args)
-    DataResolver.Store(data, process.OutputKey, result)
-    node = plan.Graph.ResolveTransition(node, intention)
-    emit Process/transition telemetry
-
-return transportNeutralCapabilityResult
-```
-
-`saveResultAs` / output-key policy must be explicit to avoid collisions where loops revisit a Process. Define whether values are overwritten or retained as history, and which objects remain visible to subsequent steps, before implementation.
+No special Fork/Join/Path objects or `PathActivation` are part of the graph model; outbox-based publish, operation-specific integration executors, durable execution trails and distributed replay are not implemented in this PoC.
 
 ## Bidirectional modeling, documentation and generation
 

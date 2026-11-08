@@ -19,6 +19,12 @@ resolve apenas os tipos aí declarados, exclusivamente nos assemblies autorizado
 e exige um método `Execute` ou `ExecuteAsync`. Não há `IProcess`, sufixo
 obrigatório ou atributo de ativação. `[Process]` é opcional e apenas documental.
 
+Cada `NodeId` identifica um ponto do grafo independentemente da classe Process.
+O paralelismo é declarado por arestas incondicionais `parallel: true`; não
+é produzido por múltiplas intenções nem por intenções repetidas.
+O `CapabilityResolver` aguarda todas as execuções iniciadas e mantém um
+Execution Trail com breadcrumbs; em `Trace` captura snapshots limitados.
+
 O `DataResolver` utiliza primeiro o nome do parâmetro e, se necessário,
 uma correspondência inequívoca por tipo. `[FromCapabilityData("name")]`
 é um override. `[ReturnName("name")]` define o nome do resultado.
