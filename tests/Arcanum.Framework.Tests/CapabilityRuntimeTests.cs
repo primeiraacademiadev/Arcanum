@@ -180,8 +180,8 @@ public class CapabilityRuntimeTests
         var source = File.ReadAllText(Path.Combine(
             AppContext.BaseDirectory, "capabilities", "demo.publish.json"));
         var definition = CapabilityCatalog.ParseJson(source);
-        var validate = typeof(ValidateProcess).FullName!;
-        definition.Graph.Transitions[validate]["valid"] = "Some.Nonexistent.Process";
+        definition.Graph.Edges.Single(edge => edge.From == "validate" && edge.Intention == "valid")
+            .To = "does-not-exist";
 
         Assert.Throws<CapabilityDefinitionException>(() =>
             new CapabilityCatalog([definition], provider.GetRequiredService<ProcessCatalog>(),
@@ -197,8 +197,7 @@ public class CapabilityRuntimeTests
         var source = File.ReadAllText(Path.Combine(
             AppContext.BaseDirectory, "capabilities", "demo.publish.json"));
         var definition = CapabilityCatalog.ParseJson(source);
-        var validate = typeof(ValidateProcess).FullName!;
-        definition.Graph.Transitions[validate].Remove("valid");
+        definition.Graph.Edges.RemoveAll(edge => edge.From == "validate" && edge.Intention == "valid");
 
         var catalog = new CapabilityCatalog([definition],
             provider.GetRequiredService<ProcessCatalog>(), new CapabilityOptions());
@@ -240,7 +239,7 @@ public class CapabilityRuntimeTests
             ExecutionDatum.Of("chosen", new CounterState(7))
         ]);
         var descriptor = ProcessDescriptor.Create(typeof(Fixtures.NamedValueProcess));
-        var args = dataResolver.Bind(descriptor, data, CancellationToken.None);
+        var args = dataResolver.Bind(descriptor, data);
         var result = await descriptor.InvokeAsync(new Fixtures.NamedValueProcess(), args);
 
         Assert.Equal("selected", result.Intention);
@@ -271,7 +270,7 @@ public class CapabilityRuntimeTests
             ExecutionDatum.Of("chosen", new CounterState(7))
         ]);
         var descriptor = ProcessDescriptor.Create(typeof(Fixtures.ConventionalNameProcess));
-        var args = dataResolver.Bind(descriptor, data, CancellationToken.None);
+        var args = dataResolver.Bind(descriptor, data);
         var result = await descriptor.InvokeAsync(new Fixtures.ConventionalNameProcess(), args);
         Assert.Equal(7, Assert.IsType<CounterState>(result.Data).Count);
     }
@@ -391,4 +390,70 @@ public class CapabilityRuntimeTests
         Assert.Throws<CapabilityDefinitionException>(() =>
             new CapabilityCatalog([definition], processes, new CapabilityOptions()));
     }
+    [Fact]
+    public void Cancellation_token_belongs_to_runtime_data_context_not_business_data()
+    {
+        using var source = new CancellationTokenSource();
+        var data = new DataResolver().CreateScope(
+            [ExecutionDatum.Of("request", new DemoInput("ok"))], source.Token);
+
+        Assert.Equal(source.Token, data.CancellationToken);
+        Assert.Throws<CapabilityDataException>(() => data.Resolve(typeof(CancellationToken), null));
+    }
+
+    [Fact]
+    public async Task Graph_depth_is_limited_independently_of_total_steps()
+    {
+        using var provider = CreateProvider();
+        using var scope = provider.CreateScope();
+        var json = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.loop.json"));
+        var definition = CapabilityCatalog.ParseJson(json);
+        definition.MaxDepth = 2;
+        var resolver = new CapabilityResolver(
+            new CapabilityCatalog([definition], provider.GetRequiredService<ProcessCatalog>(),
+                new CapabilityOptions()),
+            provider.GetRequiredService<ProcessResolver>(),
+            provider.GetRequiredService<DataResolver>(),
+            Options.Create(new CapabilityOptions()),
+            NullLogger<CapabilityResolver>.Instance);
+
+        var error = await Assert.ThrowsAsync<CapabilityDepthLimitExceededException>(() =>
+            resolver.ExecuteAsync("demo.loop", Data(new DemoInput("ok", Iterations: 3)),
+                scope.ServiceProvider));
+
+        Assert.Equal(2, error.Limit);
+        Assert.Equal("counter", error.NodeId);
+    }
+
+    [Fact]
+    public void The_same_intention_must_not_map_to_multiple_conditional_edges()
+    {
+        using var provider = CreateProvider();
+        var json = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.parallel.json"));
+        var definition = CapabilityCatalog.ParseJson(json);
+        definition.Graph.Edges.Add(new CapabilityEdge
+        {
+            From = "fork",
+            Intention = "ready",
+            To = "beta"
+        });
+
+        Assert.Throws<CapabilityDefinitionException>(() =>
+            new CapabilityCatalog([definition], provider.GetRequiredService<ProcessCatalog>(),
+                new CapabilityOptions()));
+    }
+
+    [Fact]
+    public void Graph_rejects_undeclared_occurrence_fields()
+    {
+        var json = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.publish.json"));
+        var invalid = json.Replace(
+            "\\"process\\": \\"Arcanum.Demo.Api.ValidateProcess\\"",
+            "\\"process\\": \\"Arcanum.Demo.Api.ValidateProcess\\", \\"nodeExecutionId\\": \\"forbidden\\"");
+        Assert.Throws<CapabilityDefinitionException>(() => CapabilityCatalog.ParseJson(invalid));
+    }
+
 }

@@ -40,8 +40,7 @@ public sealed class ParallelExecutionTests
     }
 
     private static ExecutionBreadcrumb Event(CapabilityExecutionResult result, string node, string kind) =>
-        Assert.Single(result.Breadcrumbs.Where(b => b.NodeId == "Arcanum.Demo.Api." + node &&
-            b.Kind == kind));
+        Assert.Single(result.Breadcrumbs, b => b.NodeId == node && b.Kind == kind);
 
     [Fact]
     public async Task Two_processes_overlap_and_join_executes_exactly_once_after_both()
@@ -50,12 +49,12 @@ public sealed class ParallelExecutionTests
         var result = await Run(provider, "demo.parallel", " AbC ");
         Assert.Equal("@complete", result.Terminal);
         Assert.Equal("ABC|abc", result.Data);
-        Assert.Equal(4, result.Steps);
-        var alphaStart = Event(result, "ParallelAlphaProcess", "Started");
-        var betaStart = Event(result, "ParallelBetaProcess", "Started");
-        var alphaEnd = Event(result, "ParallelAlphaProcess", "Completed");
-        var betaEnd = Event(result, "ParallelBetaProcess", "Completed");
-        var joinStart = Event(result, "ParallelJoinProcess", "Started");
+        Assert.Equal(5, result.Steps);
+        var alphaStart = Event(result, "alpha", "Started");
+        var betaStart = Event(result, "beta", "Started");
+        var alphaEnd = Event(result, "alpha", "Completed");
+        var betaEnd = Event(result, "beta", "Completed");
+        var joinStart = Event(result, "join", "Started");
         Assert.True(alphaStart.Sequence < betaEnd.Sequence);
         Assert.True(betaStart.Sequence < alphaEnd.Sequence);
         Assert.True(joinStart.Sequence > alphaEnd.Sequence);
@@ -74,20 +73,22 @@ public sealed class ParallelExecutionTests
     {
         using var provider = Provider();
         var result = await Run(provider, "demo.parallel-choice", value);
-        var join = Event(result, "ParallelOptionalJoinProcess", "Started");
+        var join = Event(result, "join", "Started");
         if (value.StartsWith("skip", StringComparison.Ordinal))
         {
-            var detachedEnd = Event(result, "ParallelDetachedProcess", "Completed");
+            var detachedEnd = Event(result, "detached", "Completed");
             Assert.True(join.Sequence < detachedEnd.Sequence);
+            var capabilityEnd = Assert.Single(result.Breadcrumbs, b => b.Kind == "CapabilityCompleted");
+            Assert.True(capabilityEnd.Sequence > detachedEnd.Sequence);
             Assert.DoesNotContain(result.Breadcrumbs,
-                b => b.NodeId == "Arcanum.Demo.Api.ParallelBetaProcess" && b.Kind == "Started");
+                b => b.NodeId == "beta" && b.Kind == "Started");
         }
         else
         {
-            var betaEnd = Event(result, "ParallelBetaProcess", "Completed");
+            var betaEnd = Event(result, "beta", "Completed");
             Assert.True(join.Sequence > betaEnd.Sequence);
             Assert.DoesNotContain(result.Breadcrumbs,
-                b => b.NodeId == "Arcanum.Demo.Api.ParallelDetachedProcess");
+                b => b.NodeId == "detached");
         }
         Assert.Equal("@complete", result.Terminal);
         Assert.Equal(value.ToUpperInvariant(), result.Data);
@@ -99,11 +100,11 @@ public sealed class ParallelExecutionTests
     {
         using var provider = Provider(trace: true);
         var result = await Run(provider, "demo.parallel", "ABC", "very-secret-password");
-        var started = Event(result, "ValidateProcess", "Started");
+        var started = Event(result, "validate", "Started");
         Assert.NotNull(started.SnapshotJson);
         Assert.Contains("\"password\":\"[redacted]\"", started.SnapshotJson!);
         Assert.DoesNotContain("very-secret-password", started.SnapshotJson!);
-        Assert.Contains("ABC", Event(result, "ParallelAlphaProcess", "Completed").SnapshotJson!);
+        Assert.Contains("ABC", Event(result, "alpha", "Completed").SnapshotJson!);
         Assert.All(result.Breadcrumbs.Where(b => b.SnapshotJson is not null),
             b => Assert.DoesNotContain("very-secret-password", b.SnapshotJson!));
     }
@@ -122,8 +123,8 @@ public sealed class ParallelExecutionTests
     {
         using var provider = Provider(trace: true, maxSnapshotBytes: 8);
         var result = await Run(provider, "demo.parallel", "abc");
-        Assert.True(Event(result, "ValidateProcess", "Started").SnapshotTruncated);
-        Assert.Null(Event(result, "ValidateProcess", "Started").SnapshotJson);
+        Assert.True(Event(result, "validate", "Started").SnapshotTruncated);
+        Assert.Null(Event(result, "validate", "Started").SnapshotJson);
     }
 
     [Fact]
@@ -138,4 +139,54 @@ public sealed class ParallelExecutionTests
         Assert.Equal("TWO|two", runs[1].Data);
         Assert.All(runs, r => Assert.Equal(1, r.Breadcrumbs.Count(b => b.Kind == "CapabilityStarted")));
     }
+    [Fact]
+    public async Task Distinct_nodes_can_use_the_same_Process_class()
+    {
+        using var provider = Provider();
+        using var scope = provider.CreateScope();
+        var json = File.ReadAllText(Path.Combine(
+            AppContext.BaseDirectory, "capabilities", "demo.parallel.json"));
+        var definition = CapabilityCatalog.ParseJson(json);
+        definition.Graph.Nodes["beta"].Process = typeof(ParallelAlphaProcess).FullName!;
+        definition.Graph.Nodes["beta"].SaveResultAs = "beta";
+        var resolver = new CapabilityResolver(
+            new CapabilityCatalog([definition],
+                provider.GetRequiredService<ProcessCatalog>(), new CapabilityOptions()),
+            provider.GetRequiredService<ProcessResolver>(),
+            provider.GetRequiredService<DataResolver>(),
+            Microsoft.Extensions.Options.Options.Create(new CapabilityOptions()),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<CapabilityResolver>.Instance);
+
+        var result = await resolver.ExecuteAsync(
+            "demo.parallel", [ExecutionDatum.Of("request", new DemoInput(" AbC "))],
+            scope.ServiceProvider);
+
+        Assert.Equal("ABC|ABC", result.Data);
+        Assert.NotEqual(Event(result, "alpha", "Started").NodeExecutionId,
+            Event(result, "beta", "Started").NodeExecutionId);
+        Assert.Equal(1, result.Breadcrumbs.Count(b => b.Kind == "CapabilityCompleted"));
+    }
+
+    [Fact]
+    public async Task Cancellation_during_parallel_work_settles_all_started_tasks_before_throwing()
+    {
+        using var provider = Provider();
+        using var scope = provider.CreateScope();
+        using var source = new CancellationTokenSource();
+        source.CancelAfter(45);
+        var error = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            provider.GetRequiredService<CapabilityResolver>().ExecuteAsync(
+                "demo.parallel",
+                [ExecutionDatum.Of("request", new DemoInput("abc"))],
+                scope.ServiceProvider, source.Token));
+
+        var trail = Assert.IsAssignableFrom<IReadOnlyList<ExecutionBreadcrumb>>(
+            error.Data["Arcanum.Breadcrumbs"]);
+        Assert.Contains(trail, b => b.Kind == "CapabilityCancelled");
+        Assert.DoesNotContain(trail, b => b.NodeId == "join" && b.Kind == "Started");
+        var completed = Assert.Single(trail, b => b.Kind == "CapabilityCancelled");
+        Assert.DoesNotContain(trail, b =>
+            b.Sequence > completed.Sequence && b.Kind is "Started" or "Completed" or "Cancelled");
+    }
+
 }

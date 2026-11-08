@@ -48,6 +48,10 @@ public static class ArcanumEndpointRouteBuilderExtensions
             {
                 return Results.Problem(title: "Capability execution limit exceeded", statusCode: 500);
             }
+            catch (CapabilityDepthLimitExceededException)
+            {
+                return Results.Problem(title: "Capability depth limit exceeded", statusCode: 500);
+            }
         });
     }
 }
