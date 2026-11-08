@@ -20,10 +20,12 @@ e exige um método `Execute` ou `ExecuteAsync`. Não há `IProcess`, sufixo
 obrigatório ou atributo de ativação. `[Process]` é opcional e apenas documental.
 
 Cada `NodeId` identifica um ponto do grafo independentemente da classe Process.
-O paralelismo é declarado por arestas incondicionais `parallel: true`; não
-é produzido por múltiplas intenções nem por intenções repetidas.
+O paralelismo é declarado pela intenção reservada `@spawn` nas ligações
+do grafo. Não depende de múltiplas intenções devolvidas pelo Process.
 O `CapabilityResolver` aguarda todas as execuções iniciadas e mantém um
 Execution Trail com breadcrumbs; em `Trace` captura snapshots limitados.
+Qualquer exceção detetada cancela a execução, é registada no logger e o
+resolver aguarda todas as tarefas iniciadas antes de terminar com falha.
 
 O `DataResolver` utiliza primeiro o nome do parâmetro e, se necessário,
 uma correspondência inequívoca por tipo. `[FromCapabilityData("name")]`

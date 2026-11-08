@@ -12,7 +12,7 @@ Arcanum describes a Capability as a versioned executable **process graph** in th
 - **Presentation**: Process `displayName` and `description` describe code; nodes select the implementation.
 - **Topology**: `graph.nodes` and `graph.edges` are independent declarations, not edges embedded in Processes or nodes.
 - **Intentions**: `ProcessResult<T>` has a single intention; each node permits at most one conditional edge for that intention.
-- **Parallelism**: separate `parallel: true` edges have no intention and are selected independently of the Process result; the Process does not spawn work.
+- **Parallelism**: edges whose `intention` is the reserved system value `@spawn` are activated independently of the Process's business intention. This is graph-directed: Processes never return `@spawn`.
 - **Limits**: `maxSteps` caps total invocations; `maxDepth` caps the longest causal chain. They are different budgets.
 - **Scope**: execution data and DI scope are shared across parallel Processes. Mutable-object interference is an **accepted, documented effect**, not prevented by the framework.
 - **Source of truth**: JSON owns graph connectivity, CLR Process methods own behavior; both are versioned together.
@@ -96,7 +96,7 @@ Arcanum describes a Capability as a versioned executable **process graph** in th
       },
       {
         "from": "fork",
-        "parallel": true,
+        "intention": "@spawn",
         "to": "beta"
       },
       {
@@ -126,7 +126,7 @@ This is an **illustrative fragment**; actual audit ingestion also needs producer
 - `processes` keys are full CLR class names and are the only types the loader may register.
 - `graph.nodes` keys are **stable, unique NodeIds** in the Capability, associated with `process` and optional per-node `saveResultAs`.
 - `graph.entry` and the `from`/`to` endpoints in `graph.edges` reference those IDs. Reserved `@complete`, `@stop`, `@fail` are terminal destinations.
-- `intention` edges are unique for each `(from, intention)` pair. A `parallel: true` edge has **no intention**; it is launched in parallel with the one selected continuation whenever its source node completes.
+- Business `intention` edges are unique for each `(from, intention)` pair. The reserved system intention `@spawn` may appear on multiple edges from the same node and launches each corresponding destination in parallel with the selected business continuation.
 - Neither `NodeExecutionId` nor `PathActivation` belongs to the graph specification. The resolver assigns a new invocation ID on each visit and records causal links in breadcrumbs.
 - Multiple visits to a node, including loops, are allowed and count separately against both depth and total-step budgets.
 
@@ -236,8 +236,8 @@ remain stable so folder refactoring does not break graph references.
 
 ### Intentions and reserved directives
 
-- Local Process intentions: `valid`, `invalid`, `duplicate`, `classified`; each outcome matches at most one conditional edge from the current **NodeId**. `parallel: true` edges are unconditional and independent of the intention.
-- Reserved graph targets prefixed by `@`: implemented `@complete`, `@stop`, `@fail`; `@retry` and `@next` are not implemented. These are **directives at the transition destination**, not general business intentions emitted by Processes.
+- Local Process intentions: `valid`, `invalid`, `duplicate`, `classified`; each outcome matches at most one conditional edge from the current **NodeId**. Graph-level `@spawn` edges are unconditional and independent of this result.
+- Reserved **edge intention**: `@spawn` (system-controlled parallel activation; never a `ProcessResult.Intention`). Reserved **destinations**: `@complete`, `@stop`, `@fail`. Other `@` forms are invalid. These are **directives at the transition destination**, not general business intentions emitted by Processes.
 - The dot `.` qualifies names, e.g. `arca.audit.publish.duplicate`, when needed by observers or inter-Capability contracts, without coupling a reused Process to its owner.
 - Unknown intentions/unmapped edges fail safely and are observed, never silently ignored.
 
@@ -247,9 +247,9 @@ remain stable so folder refactoring does not break graph references.
 
 The `CapabilityResolver` schedules all eligible outgoing edges asynchronously after storing the completed Process output. A node with one incoming edge can run immediately; a node with several incoming edges waits while any other **pending or running** execution can still reach it. When an alternative path becomes impossible, the wait is recalculated. The resolver follows all started work and **never returns a Capability result before its running and queued work settles**. Concurrent terminal arrivals must agree on the terminal directive. If their intentions differ, the successful Capability result carries a null Intention (there is no single answer) while the trail records all terminal transitions.
 
-The linked `CancellationToken` is held in the runtime data scope, supplied to Process methods, checked before **each** new invocation and again **after** each completed invocation before scheduling successors. On exception or cancellation, the resolver signals cancellation and awaits all already started work before rethrowing. A non-cooperative Process may therefore delay cancellation indefinitely; the framework cannot forcibly stop user code. No external side effect is rolled back automatically.
+The linked `CancellationToken` is held in the runtime data scope, supplied to Process methods, checked before **each** new invocation and again **after** each completed invocation before scheduling successors. When any Process throws, its worker immediately cancels the linked token and logs the exception. The resolver stops scheduling successors, logs its own failures, and awaits every already-started worker before rethrowing; independent sibling exceptions are logged individually. Unknown/invalid graph intentions also cause cancellation. A non-cooperative Process may therefore delay cancellation indefinitely; the framework cannot forcibly stop user code. No external side effect is rolled back automatically.
 
-`ExecutionTrail` records the scheduler-observed order, node and invocation IDs, start/end time and elapsed duration, thread ID, causal transitions, join waits, failures and cancellation. At effective `Trace` level it snapshots serializable business method inputs/outputs with configured name-based redaction and size cap. It does **not** serialize injected infrastructure or the token. On success the breadcrumbs are attached to the result with `[JsonIgnore]`; on exception they are available as `exception.Data["Arcanum.Breadcrumbs"]`, with `Arcanum.ExecutionId` for correlation. These diagnostics are not a globally synchronized physical clock.
+`ExecutionTrail` records the scheduler-observed order, node and invocation IDs, start/end time and elapsed duration, thread ID, causal transitions, join waits, failures and cancellation. At effective `Trace` level it snapshots serializable business method inputs/outputs with configured name-based redaction and size cap. It does **not** serialize injected infrastructure or the token. On success the breadcrumbs are attached to the result with `[JsonIgnore]`; on exception they are available as `exception.Data["Arcanum.Breadcrumbs"]`, with `Arcanum.ExecutionId` for correlation. Every runtime exception handled by the resolver is logged with its exception object; errors during Trace snapshot serialization are also logged. These diagnostics are not a globally synchronized physical clock.
 
 No special Fork/Join/Path objects or `PathActivation` are part of the graph model; outbox-based publish, operation-specific integration executors, durable execution trails and distributed replay are not implemented in this PoC.
 

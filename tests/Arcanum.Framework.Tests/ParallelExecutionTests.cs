@@ -253,11 +253,29 @@ public sealed class ParallelExecutionTests
         using var scope = provider.CreateScope();
         var definition = CapabilityCatalog.ParseJson(File.ReadAllText(Path.Combine(
             AppContext.BaseDirectory, "capabilities", "demo.parallel.json")));
-        definition.Graph.Edges.RemoveAll(edge => edge.From == "fork" && edge.Intention == "ready");
-        // The catalog rejects a node with no business continuation, before execution.
-        Assert.Throws<CapabilityDefinitionException>(() =>
-            new CapabilityCatalog([definition], provider.GetRequiredService<ProcessCatalog>(),
-                new CapabilityOptions()));
+        var edge = Assert.Single(definition.Graph.Edges,
+            e => e.From == "fork" && e.Intention == "ready");
+        edge.Intention = "unreachable";
+        var catalog = new CapabilityCatalog([definition],
+            provider.GetRequiredService<ProcessCatalog>(), new CapabilityOptions());
+        var resolver = new CapabilityResolver(
+            catalog,
+            provider.GetRequiredService<ProcessResolver>(),
+            provider.GetRequiredService<DataResolver>(),
+            Microsoft.Extensions.Options.Options.Create(new CapabilityOptions()),
+            recorder);
+
+        var error = await Assert.ThrowsAsync<CapabilityTransitionException>(() =>
+            resolver.ExecuteAsync("demo.parallel",
+                [ExecutionDatum.Of("request", new DemoInput("ok"))],
+                scope.ServiceProvider));
+
+        Assert.Contains(recorder.Exceptions, e => ReferenceEquals(e, error));
+        var trail = Assert.IsAssignableFrom<IReadOnlyList<ExecutionBreadcrumb>>(
+            error.Data["Arcanum.Breadcrumbs"]);
+        Assert.Contains(trail, e => e.Kind == "CapabilityFailed");
+        Assert.DoesNotContain(trail, e => e.NodeId == "alpha" && e.Kind == "Started");
+        Assert.DoesNotContain(trail, e => e.NodeId == "beta" && e.Kind == "Started");
     }
 
 }

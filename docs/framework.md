@@ -82,7 +82,7 @@ Candidate publish activities: authenticate producer → validate contract → ch
 
 ## Graph-directed execution — experimental runtime (not production V1)
 
-A Capability is a **versioned directed graph**. A graph-local `NodeId` refers to a Process type; each Process returns a single outcome. The resolver follows at most one conditional edge per intention, plus declared unconditional parallel edges. Dynamic convergences and asynchronous node scheduling are experimentally implemented; the framework does not provide data isolation or a durable scheduler.
+A Capability is a **versioned directed graph**. A graph-local `NodeId` refers to a Process type; each Process returns a single outcome. The resolver follows at most one conditional edge per business intention, plus unconditional edges marked with the system intention `@spawn`. Dynamic convergences and asynchronous node scheduling are experimentally implemented; the framework does not provide data isolation or a durable scheduler.
 
 ```mermaid
 flowchart TD

@@ -148,10 +148,11 @@ several distinct nodes and a node may be visited repeatedly. `NodeExecutionId`
 is generated per invocation at runtime, never declared in the graph.
 
 The `graph.edges` collection permits one conditional edge per `(from, intention)`
-pair. **Duplicate intention edges are invalid.** A separate edge such as
-`{"from":"fork","parallel":true,"to":"beta"}` is unconditional and activates
-independently of the ProcessResult's single intention. It can run alongside the
-selected conditional continuation. There are no special Fork/Join/Path objects
+pair. **Duplicate business intention edges are invalid.** A separate edge such as
+`{"from":"fork","intention":"@spawn","to":"beta"}` uses the reserved **system
+intention** `@spawn`. It is unconditional and activates independently of the
+single business intention in `ProcessResult`. Multiple `@spawn` edges may
+originate from a node, and none may target a terminal directive. There are no special Fork/Join/Path objects
 or PathActivation records. All outgoing scheduling occurs asynchronously.
 
 - `demo.parallel`: validation selects a single continuation into a fan-out
@@ -166,7 +167,11 @@ The resolver keeps all scheduled/running work in its own execution context.
 For a convergent node, it analyses whether other pending/running node invocations
 can still reach it. New successors are published before recalculating joins.
 Both successful completion and failure/cancellation handling await all started
-Process invocations. On cancellation, a Process that ignores its token can hold
+Process invocations. When any Process throws, its worker **immediately signals
+cancellation**, preventing further graph propagation. All Process exceptions
+(including those thrown by siblings while cancellation is in progress) are
+logged individually, as are scheduler failures. Trace snapshot serialization
+exceptions are logged too, even when the snapshot is omitted. On cancellation, a Process that ignores its token can hold
 up completion indefinitely. Multiple terminal arrivals with conflicting directives fail. If they reach the
 same directive with different intentions, the Capability's singular Intention
 is null and all individual intentions remain visible in its Execution Trail.
