@@ -113,7 +113,8 @@ public sealed class CapabilityCatalog
                 throw new CapabilityDefinitionException($"Invalid graph node '{id}' or undeclared Process.");
             if (node.SaveResultAs is not null && string.IsNullOrWhiteSpace(node.SaveResultAs))
                 throw new CapabilityDefinitionException($"Node '{id}' has an empty saveResultAs.");
-            if (!definition.Graph.Edges.Any(edge => edge.From == id && !edge.Parallel))
+            if (!definition.Graph.Edges.Any(edge =>
+                edge.From == id && edge.Intention != CapabilityGraph.SpawnIntention))
                 throw new CapabilityDefinitionException(
                     $"Node '{id}' needs at least one intention-based continuation.");
         }
@@ -123,16 +124,15 @@ public sealed class CapabilityCatalog
         {
             if (!definition.Graph.Nodes.ContainsKey(edge.From) || string.IsNullOrWhiteSpace(edge.To))
                 throw new CapabilityDefinitionException($"Invalid edge source or destination on '{edge.From}'.");
-            if (edge.Parallel)
+            if (string.IsNullOrWhiteSpace(edge.Intention))
+                throw new CapabilityDefinitionException($"Missing intention on edge from '{edge.From}'.");
+
+            var isSpawn = edge.Intention == CapabilityGraph.SpawnIntention;
+            if (!isSpawn)
             {
-                if (edge.Intention is not null)
+                if (edge.Intention.StartsWith('@'))
                     throw new CapabilityDefinitionException(
-                        $"Parallel edge from '{edge.From}' cannot declare an intention.");
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(edge.Intention) || edge.Intention.StartsWith('@'))
-                    throw new CapabilityDefinitionException($"Invalid intention on '{edge.From}'.");
+                        $"Reserved system intention '{edge.Intention}' is not supported on '{edge.From}'.");
                 if (!conditional.Add((edge.From, edge.Intention)))
                     throw new CapabilityDefinitionException(
                         $"Node '{edge.From}' declares intention '{edge.Intention}' more than once.");
@@ -140,7 +140,7 @@ public sealed class CapabilityCatalog
 
             if (edge.To.StartsWith('@'))
             {
-                if (edge.Parallel || edge.To is not ("@stop" or "@complete" or "@fail"))
+                if (isSpawn || edge.To is not ("@stop" or "@complete" or "@fail"))
                     throw new CapabilityDefinitionException($"Unsupported terminal edge '{edge.To}'.");
             }
             else if (!definition.Graph.Nodes.ContainsKey(edge.To))

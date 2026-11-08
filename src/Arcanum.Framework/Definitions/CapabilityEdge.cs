@@ -1,11 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace Arcanum.Framework;
 
-// Conditional edges select one continuation by intention. Parallel edges do not
-// inspect the result intention and may be activated together with the continuation.
+// All edges use the same declaration. @spawn denotes an unconditional,
+// graph-directed parallel successor and is never returned by a Process.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CapabilityEdge
 {
     public string From { get; set; } = "";
-    public string? Intention { get; set; }
+    public string Intention { get; set; } = "";
     public string To { get; set; } = "";
-    public bool Parallel { get; set; }
 }

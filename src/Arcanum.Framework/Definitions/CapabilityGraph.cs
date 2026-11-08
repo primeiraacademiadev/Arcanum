@@ -10,10 +10,13 @@ public sealed class CapabilityGraph
     public Dictionary<string, CapabilityNode> Nodes { get; set; } = new(StringComparer.Ordinal);
     public List<CapabilityEdge> Edges { get; set; } = [];
 
-    // One intention selects at most one conditional edge. Parallel edges run
-    // independently of the ProcessResult intention (and may be several).
+    // @spawn is a reserved system intention on graph edges; it does not come
+    // from ProcessResult. A business intention selects at most one transition.
+    public const string SpawnIntention = "@spawn";
+
     public CapabilityEdge[] Matching(string from, string intention) =>
-        Edges.Where(edge => edge.From == from && (edge.Parallel || edge.Intention == intention)).ToArray();
+        Edges.Where(edge => edge.From == from &&
+            (edge.Intention == SpawnIntention || edge.Intention == intention)).ToArray();
 
     public int IncomingCount(string node) => Edges.Count(edge => edge.To == node);
 

@@ -115,9 +115,9 @@ public sealed class CapabilityResolver(
                 var result = await completedTask;
                 linked.Token.ThrowIfCancellationRequested();
 
-                if (string.IsNullOrWhiteSpace(result.Intention))
+                if (string.IsNullOrWhiteSpace(result.Intention) || result.Intention.StartsWith('@'))
                     throw new CapabilityTransitionException(
-                        $"Node '{completed.NodeId}' returned an empty intention.");
+                        $"Node '{completed.NodeId}' returned an empty or reserved system intention.");
 
                 var nodeConfig = definition.Graph.Nodes[completed.NodeId];
                 var descriptorOfResult = processes.GetDescriptor(nodeConfig.Process);
@@ -126,18 +126,18 @@ public sealed class CapabilityResolver(
                     metadata.SaveResultAs ?? descriptorOfResult.ReturnName!, result);
 
                 if (!definition.Graph.Edges.Any(edge =>
-                    edge.From == completed.NodeId && !edge.Parallel && edge.Intention == result.Intention))
+                    edge.From == completed.NodeId && edge.Intention == result.Intention))
                     throw new CapabilityTransitionException(
                         $"Node '{completed.NodeId}' returned unmapped intention '{result.Intention}'.");
                 var targets = definition.Graph.Matching(completed.NodeId, result.Intention);
 
                 // Publish ALL selected successors before re-evaluating pending joins.
-                // Parallel edges do not depend on the ProcessResult intention.
+                // @spawn is a system intention evaluated by the scheduler, not the Process.
                 foreach (var edge in targets)
                 {
                     trail.Add("Transition", completed.NodeId, completed.InvocationId,
                         intention: result.Intention, relatedNodeId: edge.To,
-                        detail: edge.Parallel ? "parallel" : "conditional");
+                        detail: edge.Intention == CapabilityGraph.SpawnIntention ? "spawn" : "conditional");
                     if (edge.To.StartsWith('@'))
                         terminals.Add(new TerminalArrival(edge.To, result.Intention, result.Data));
                     else
