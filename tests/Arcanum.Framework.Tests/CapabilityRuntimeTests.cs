@@ -451,8 +451,8 @@ public class CapabilityRuntimeTests
         var json = File.ReadAllText(Path.Combine(
             AppContext.BaseDirectory, "capabilities", "demo.publish.json"));
         var invalid = json.Replace(
-            "\\"process\\": \\"Arcanum.Demo.Api.ValidateProcess\\"",
-            "\\"process\\": \\"Arcanum.Demo.Api.ValidateProcess\\", \\"nodeExecutionId\\": \\"forbidden\\"");
+            "\"validate\": {",
+            "\"validate\": { \"nodeExecutionId\": \"forbidden\",");
         Assert.Throws<CapabilityDefinitionException>(() => CapabilityCatalog.ParseJson(invalid));
     }
 
