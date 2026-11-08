@@ -76,6 +76,11 @@
         "to": "@stop"
       },
       {
+        "from": "validate",
+        "intention": "valid",
+        "to": "fork"
+      },
+      {
         "from": "fork",
         "intention": "ready",
         "to": "alpha"
