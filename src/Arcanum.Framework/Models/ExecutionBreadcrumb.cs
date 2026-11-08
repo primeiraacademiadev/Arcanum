@@ -16,4 +16,5 @@ public sealed record ExecutionBreadcrumb(
     double? DurationMs = null,
     string? Detail = null,
     string? SnapshotJson = null,
-    bool SnapshotTruncated = false);
+    bool SnapshotTruncated = false,
+    Guid? CausedByNodeExecutionId = null);

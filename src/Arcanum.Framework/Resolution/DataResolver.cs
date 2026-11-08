@@ -2,20 +2,20 @@ namespace Arcanum.Framework;
 
 public sealed class DataResolver
 {
-    public ExecutionDataScope CreateScope(IEnumerable<ExecutionDatum> initialData)
+    public ExecutionDataScope CreateScope(IEnumerable<ExecutionDatum> initialData, CancellationToken cancellationToken = default)
     {
-        var data = new ExecutionDataScope();
+        var data = new ExecutionDataScope(cancellationToken);
         foreach (var item in initialData)
             data.Store(item.Name, item.DataType, item.Value);
         return data;
     }
 
     public object?[] Bind(
-        ProcessDescriptor descriptor, ExecutionDataScope data, CancellationToken cancellationToken)
+        ProcessDescriptor descriptor, ExecutionDataScope data)
     {
         return descriptor.Parameters.Select(binding =>
             binding.IsCancellationToken
-                ? (object)cancellationToken
+                ? (object)data.CancellationToken
                 : data.Resolve(binding.ParameterType, binding.DataName, binding.ParameterName)).ToArray();
     }
 

@@ -2,6 +2,12 @@ namespace Arcanum.Framework;
 
 public sealed class ExecutionDataScope
 {
+    // Runtime context, not user-declared execution data or a JSON contract input.
+    public CancellationToken CancellationToken { get; }
+
+    public ExecutionDataScope(CancellationToken cancellationToken = default) =>
+        CancellationToken = cancellationToken;
+
     private readonly record struct Entry(Type Type, object? Value);
 
     private readonly Dictionary<string, Entry> _data = new(StringComparer.Ordinal);

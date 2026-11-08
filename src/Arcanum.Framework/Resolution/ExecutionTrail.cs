@@ -23,7 +23,8 @@ internal sealed class ExecutionTrail(CapabilityOptions options, bool traceEnable
         double? durationMs = null,
         string? detail = null,
         object? snapshot = null,
-        bool captureSnapshot = false)
+        bool captureSnapshot = false,
+        Guid? causedByNodeExecutionId = null)
     {
         var (json, truncated) = traceEnabled && captureSnapshot
             ? Capture(snapshot)
@@ -44,7 +45,8 @@ internal sealed class ExecutionTrail(CapabilityOptions options, bool traceEnable
                 durationMs,
                 detail,
                 json,
-                truncated));
+                truncated,
+                causedByNodeExecutionId));
         }
     }
 

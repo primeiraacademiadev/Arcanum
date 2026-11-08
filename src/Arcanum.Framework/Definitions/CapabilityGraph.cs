@@ -1,33 +1,23 @@
+using System.Text.Json.Serialization;
+
 namespace Arcanum.Framework;
 
+// Nodes have graph-local identities. Edges are declared separately from node metadata.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CapabilityGraph
 {
     public string Entry { get; set; } = "";
-
-    // Legacy single-target syntax remains valid for existing Capabilities.
-    public Dictionary<string, Dictionary<string, string>> Transitions { get; set; } =
-        new(StringComparer.Ordinal);
-
-    // New syntax allows several edges for the same source and intention.
+    public Dictionary<string, CapabilityNode> Nodes { get; set; } = new(StringComparer.Ordinal);
     public List<CapabilityEdge> Edges { get; set; } = [];
 
-    public IEnumerable<CapabilityEdge> AllEdges =>
-        Edges.Count > 0
-            ? Edges
-            : Transitions.SelectMany(source => source.Value.Select(pair => new CapabilityEdge
-            {
-                From = source.Key,
-                Intention = pair.Key,
-                To = pair.Value
-            }));
-
+    // One intention selects at most one conditional edge. Parallel edges run
+    // independently of the ProcessResult intention (and may be several).
     public CapabilityEdge[] Matching(string from, string intention) =>
-        AllEdges.Where(edge => edge.From == from && edge.Intention == intention).ToArray();
+        Edges.Where(edge => edge.From == from && (edge.Parallel || edge.Intention == intention)).ToArray();
 
-    public int IncomingCount(string node) => AllEdges.Count(edge => edge.To == node);
+    public int IncomingCount(string node) => Edges.Count(edge => edge.To == node);
 
-    // Conservative while a Process is running: all its declared intentions are possible.
-    // Once it completes, the scheduler replaces that uncertainty with the selected edges.
+    // During execution all future outcomes are possible until a Process completes.
     public bool CanReach(string source, string target)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -40,7 +30,7 @@ public sealed class CapabilityGraph
                 continue;
             if (current == target)
                 return true;
-            foreach (var edge in AllEdges.Where(edge => edge.From == current && !edge.To.StartsWith('@')))
+            foreach (var edge in Edges.Where(edge => edge.From == current && !edge.To.StartsWith('@')))
                 queue.Enqueue(edge.To);
         }
         return false;

@@ -18,6 +18,8 @@ public sealed class CapabilityCatalog
     {
         if (options.DefaultMaxSteps <= 0)
             throw new CapabilityDefinitionException("CapabilityOptions.DefaultMaxSteps must be positive.");
+        if (options.DefaultMaxDepth <= 0)
+            throw new CapabilityDefinitionException("CapabilityOptions.DefaultMaxDepth must be positive.");
 
         _capabilities = new Dictionary<string, CapabilityDefinition>(StringComparer.Ordinal);
         foreach (var definition in definitions)
@@ -75,6 +77,8 @@ public sealed class CapabilityCatalog
 
         if (definition.MaxSteps is <= 0)
             throw new CapabilityDefinitionException($"Capability '{definition.Name}' maxSteps must be positive.");
+        if (definition.MaxDepth is <= 0)
+            throw new CapabilityDefinitionException($"Capability '{definition.Name}' maxDepth must be positive.");
 
         if (definition.Processes is null || definition.Processes.Count == 0 || definition.Graph is null)
             throw new CapabilityDefinitionException($"Capability '{definition.Name}' requires Processes and Graph.");
@@ -95,36 +99,52 @@ public sealed class CapabilityCatalog
                     $"Process '{name}' requires [ReturnName] or saveResultAs.");
         }
 
-        if (!definition.Processes.ContainsKey(definition.Graph.Entry))
-            throw new CapabilityDefinitionException($"Unknown entry Process '{definition.Graph.Entry}'.");
+        if (definition.Graph.Nodes is null || definition.Graph.Nodes.Count == 0)
+            throw new CapabilityDefinitionException("Capability graph requires uniquely identified nodes.");
+        if (!definition.Graph.Nodes.ContainsKey(definition.Graph.Entry))
+            throw new CapabilityDefinitionException($"Unknown entry node '{definition.Graph.Entry}'.");
+        if (definition.Graph.Edges is null)
+            throw new CapabilityDefinitionException("Capability graph requires edges.");
 
-
-        if (definition.Graph.Transitions is null || definition.Graph.Edges is null)
-            throw new CapabilityDefinitionException("Missing graph edges or transitions.");
-        if (definition.Graph.Edges.Count > 0 && definition.Graph.Transitions.Count > 0)
-            throw new CapabilityDefinitionException("Use either graph.edges or legacy graph.transitions.");
-
-        var edges = definition.Graph.AllEdges.ToArray();
-        foreach (var name in definition.Processes.Keys)
-            if (!edges.Any(edge => edge.From == name))
-                throw new CapabilityDefinitionException($"Process '{name}' has no outgoing edge.");
-
-        foreach (var edge in edges)
+        foreach (var (id, node) in definition.Graph.Nodes)
         {
-            if (!definition.Processes.ContainsKey(edge.From))
-                throw new CapabilityDefinitionException($"Edge source '{edge.From}' is not a Process.");
-            if (string.IsNullOrWhiteSpace(edge.Intention) || edge.Intention.StartsWith('@') ||
-                string.IsNullOrWhiteSpace(edge.To))
-                throw new CapabilityDefinitionException($"Invalid intention mapping on '{edge.From}'.");
+            if (string.IsNullOrWhiteSpace(id) || id.StartsWith('@') || node is null ||
+                string.IsNullOrWhiteSpace(node.Process) || !definition.Processes.ContainsKey(node.Process))
+                throw new CapabilityDefinitionException($"Invalid graph node '{id}' or undeclared Process.");
+            if (node.SaveResultAs is not null && string.IsNullOrWhiteSpace(node.SaveResultAs))
+                throw new CapabilityDefinitionException($"Node '{id}' has an empty saveResultAs.");
+            if (!definition.Graph.Edges.Any(edge => edge.From == id))
+                throw new CapabilityDefinitionException($"Node '{id}' has no outgoing edge.");
+        }
+
+        var conditional = new HashSet<(string Node, string Intention)>();
+        foreach (var edge in definition.Graph.Edges)
+        {
+            if (!definition.Graph.Nodes.ContainsKey(edge.From) || string.IsNullOrWhiteSpace(edge.To))
+                throw new CapabilityDefinitionException($"Invalid edge source or destination on '{edge.From}'.");
+            if (edge.Parallel)
+            {
+                if (edge.Intention is not null)
+                    throw new CapabilityDefinitionException(
+                        $"Parallel edge from '{edge.From}' cannot declare an intention.");
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(edge.Intention) || edge.Intention.StartsWith('@'))
+                    throw new CapabilityDefinitionException($"Invalid intention on '{edge.From}'.");
+                if (!conditional.Add((edge.From, edge.Intention)))
+                    throw new CapabilityDefinitionException(
+                        $"Node '{edge.From}' declares intention '{edge.Intention}' more than once.");
+            }
 
             if (edge.To.StartsWith('@'))
             {
-                if (edge.To is not ("@stop" or "@complete" or "@fail"))
-                    throw new CapabilityDefinitionException($"Unsupported graph directive '{edge.To}'.");
+                if (edge.Parallel || edge.To is not ("@stop" or "@complete" or "@fail"))
+                    throw new CapabilityDefinitionException($"Unsupported terminal edge '{edge.To}'.");
             }
-            else if (!definition.Processes.ContainsKey(edge.To))
+            else if (!definition.Graph.Nodes.ContainsKey(edge.To))
                 throw new CapabilityDefinitionException(
-                    $"Target Process '{edge.To}' of '{edge.From}' is not registered.");
+                    $"Unknown target node '{edge.To}' from '{edge.From}'.");
         }
 
         ValidateContract(definition, catalog);
@@ -175,13 +195,14 @@ public sealed class CapabilityCatalog
         }
 
         var produced = new Dictionary<string, Type>(StringComparer.Ordinal);
-        foreach (var (name, metadata) in definition.Processes)
+        foreach (var (nodeId, node) in definition.Graph.Nodes)
         {
-            var descriptor = catalog.Get(name);
-            var key = metadata.SaveResultAs ?? descriptor.ReturnName!;
+            var descriptor = catalog.Get(node.Process);
+            var metadata = definition.Processes[node.Process];
+            var key = node.SaveResultAs ?? metadata.SaveResultAs ?? descriptor.ReturnName!;
             if (produced.TryGetValue(key, out var previous) && previous != descriptor.ReturnDataType)
                 throw new CapabilityDefinitionException(
-                    $"Different output types use the same result name '{key}'.");
+                    $"Different output types use the same result name '{key}' (node '{nodeId}').");
             produced[key] = descriptor.ReturnDataType;
         }
 
@@ -198,7 +219,7 @@ public sealed class CapabilityCatalog
                     $"Contract response '{terminal}' must reference a produced result with its exact type.");
         }
 
-        foreach (var terminal in definition.Graph.AllEdges.Select(edge => edge.To)
+        foreach (var terminal in definition.Graph.Edges.Select(edge => edge.To)
                      .Where(target => target is "@complete" or "@stop")
                      .Distinct(StringComparer.Ordinal))
             if (!contract.Responses.ContainsKey(terminal))

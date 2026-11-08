@@ -1,9 +1,11 @@
 namespace Arcanum.Framework;
 
-// An edge is topology, not a Process return value or a Process attribute.
+// Conditional edges select one continuation by intention. Parallel edges do not
+// inspect the result intention and may be activated together with the continuation.
 public sealed class CapabilityEdge
 {
     public string From { get; set; } = "";
-    public string Intention { get; set; } = "";
+    public string? Intention { get; set; }
     public string To { get; set; } = "";
+    public bool Parallel { get; set; }
 }
