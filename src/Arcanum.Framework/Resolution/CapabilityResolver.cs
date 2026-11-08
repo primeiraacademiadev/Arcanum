@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,6 +28,37 @@ public sealed class CapabilityResolver(
         IServiceProvider resourceScope,
         CancellationToken cancellationToken = default)
     {
+        // Reference identity ensures that one thrown exception is logged once,
+        // including when it surfaces through the worker and the scheduler.
+        var logged = new ConcurrentDictionary<Exception, byte>(ReferenceEqualityComparer.Instance);
+        void LogException(Exception exception, string? nodeId, Guid? invocationId)
+        {
+            if (logged.TryAdd(exception, 0))
+                logger.LogError(exception,
+                    "Capability {Capability} node {NodeId} invocation {InvocationId} raised {ExceptionType}",
+                    name, nodeId, invocationId, exception.GetType().Name);
+        }
+
+        try
+        {
+            return await ExecuteCoreAsync(name, initialData, resourceScope,
+                cancellationToken, LogException);
+        }
+        catch (Exception exception)
+        {
+            // Also covers failures before the execution context can be created.
+            LogException(exception, null, null);
+            throw;
+        }
+    }
+
+    private async Task<CapabilityExecutionResult> ExecuteCoreAsync(
+        string name,
+        IEnumerable<ExecutionDatum> initialData,
+        IServiceProvider resourceScope,
+        CancellationToken cancellationToken,
+        Action<Exception, string?, Guid?> logException)
+    {
         var definition = capabilities.Get(name);
         var maxSteps = definition.MaxSteps ?? options.Value.DefaultMaxSteps;
         var maxDepth = definition.MaxDepth ?? options.Value.DefaultMaxDepth;
@@ -33,12 +66,13 @@ public sealed class CapabilityResolver(
         // CancellationToken is held in runtime context, not in business data entries.
         var data = dataResolver.CreateScope(initialData, linked.Token);
         var executionId = Guid.NewGuid();
-        var trail = new ExecutionTrail(options.Value, logger.IsEnabled(LogLevel.Trace));
+        var trail = new ExecutionTrail(options.Value, logger.IsEnabled(LogLevel.Trace), logger);
         var pending = new Dictionary<string, List<Arrival>>(StringComparer.Ordinal);
         var running = new List<RunningNode>();
         var terminals = new List<TerminalArrival>();
         var waiting = new HashSet<string>(StringComparer.Ordinal);
         var steps = 0;
+        Exception? firstProcessFailure = null;
 
         using var trace = Traces.StartActivity("capability.execute");
         trace?.SetTag("capability.name", definition.Name);
@@ -95,7 +129,12 @@ public sealed class CapabilityResolver(
                                 causedByNodeExecutionId: arrival.SourceInvocationId);
                     var work = Task.Run(
                         () => InvokeNodeAsync(nodeId, node.Process, invocationId, descriptor,
-                            args, resourceScope, trail, linked.Token), linked.Token);
+                            args, resourceScope, trail, linked, logException,
+                            exception =>
+                            {
+                                if (exception is not OperationCanceledException)
+                                    Interlocked.CompareExchange(ref firstProcessFailure, exception, null);
+                            }));
                     running.Add(new RunningNode(nodeId, invocationId, depth, work));
                     steps++;
                 }
@@ -175,20 +214,33 @@ public sealed class CapabilityResolver(
         }
         catch (Exception exception)
         {
+            // Immediately stop all further graph propagation and signal every
+            // Process. Already-started tasks must settle before we can return.
             linked.Cancel();
-            // A Capability never returns or rethrows before its started work settles.
-            try { await Task.WhenAll(running.Select(item => item.Work)); }
-            catch { /* all tasks are observed; preserve initiating failure */ }
-            trail.Add(exception is OperationCanceledException ? "CapabilityCancelled" : "CapabilityFailed",
-                detail: exception.GetType().Name);
-            // Retain trail even when there is no successful result object.
-            exception.Data["Arcanum.ExecutionId"] = executionId;
-            exception.Data["Arcanum.Breadcrumbs"] = trail.Snapshot();
-            if (exception is OperationCanceledException)
-                logger.LogInformation("Capability {Capability} execution {ExecutionId} cancelled", name, executionId);
-            else
-                logger.LogError(exception, "Capability {Capability} execution {ExecutionId} failed",
-                    name, executionId);
+            logException(exception, null, null);
+            try
+            {
+                await Task.WhenAll(running.Select(item => item.Work));
+            }
+            catch (Exception remaining)
+            {
+                // Workers log each exception themselves (including siblings).
+                // If Task.WhenAll raises a distinct error, never discard it.
+                logException(remaining, null, null);
+            }
+
+            // A Process fault may have cancelled the scheduler before its own
+            // Task was observed. Preserve the real fault instead of replacing
+            // it with the resulting OperationCanceledException.
+            var originalFailure = Volatile.Read(ref firstProcessFailure);
+            var primary = exception is OperationCanceledException && originalFailure is not null
+                ? originalFailure : exception;
+            trail.Add(primary is OperationCanceledException ? "CapabilityCancelled" : "CapabilityFailed",
+                detail: primary.GetType().Name);
+            primary.Data["Arcanum.ExecutionId"] = executionId;
+            primary.Data["Arcanum.Breadcrumbs"] = trail.Snapshot();
+            if (!ReferenceEquals(primary, exception))
+                ExceptionDispatchInfo.Capture(primary).Throw();
             throw;
         }
 
@@ -210,42 +262,49 @@ public sealed class CapabilityResolver(
         object?[] args,
         IServiceProvider resourceScope,
         ExecutionTrail trail,
-        CancellationToken cancellationToken)
+        CancellationTokenSource linked,
+        Action<Exception, string?, Guid?> logException,
+        Action<Exception> recordFailure)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var process = processes.Resolve(descriptor, resourceScope);
-        var inputs = new Dictionary<string, object?>(StringComparer.Ordinal);
-        for (var i = 0; i < descriptor.Parameters.Count; i++)
-            if (!descriptor.Parameters[i].IsCancellationToken)
-                inputs.Add(descriptor.Parameters[i].ParameterName, args[i]);
-
-        trail.Add("Started", nodeId, invocationId, descriptor.MethodName,
-            snapshot: inputs, captureSnapshot: true);
         var clock = Stopwatch.StartNew();
-        using var activity = Traces.StartActivity("capability.process");
-        activity?.SetTag("process.type", processType);
-        activity?.SetTag("process.node_id", nodeId);
-        activity?.SetTag("process.invocation_id", invocationId);
         try
         {
+            // Task.Run deliberately receives no cancellation token: every
+            // scheduled worker enters this try/catch even if cancellation won
+            // the race before it started, so its exception is observable.
+            linked.Token.ThrowIfCancellationRequested();
+            var process = processes.Resolve(descriptor, resourceScope);
+            var inputs = new Dictionary<string, object?>(StringComparer.Ordinal);
+            for (var i = 0; i < descriptor.Parameters.Count; i++)
+                if (!descriptor.Parameters[i].IsCancellationToken)
+                    inputs.Add(descriptor.Parameters[i].ParameterName, args[i]);
+
+            trail.Add("Started", nodeId, invocationId, descriptor.MethodName,
+                snapshot: inputs, captureSnapshot: true);
+            using var activity = Traces.StartActivity("capability.process");
+            activity?.SetTag("process.type", processType);
+            activity?.SetTag("process.node_id", nodeId);
+            activity?.SetTag("process.invocation_id", invocationId);
+
             var result = await processes.InvokeAsync(descriptor, process, args);
             trail.Add("Completed", nodeId, invocationId, descriptor.MethodName,
                 intention: result.Intention, durationMs: clock.Elapsed.TotalMilliseconds,
                 snapshot: result.Data, captureSnapshot: true);
-            logger.LogInformation("Capability node {NodeId} Process {Process} invocation {InvocationId} returned {Intention}",
+            logger.LogInformation(
+                "Capability node {NodeId} Process {Process} invocation {InvocationId} returned {Intention}",
                 nodeId, processType, invocationId, result.Intention);
             return result;
         }
-        catch (OperationCanceledException)
-        {
-            trail.Add("Cancelled", nodeId, invocationId, descriptor.MethodName,
-                durationMs: clock.Elapsed.TotalMilliseconds);
-            throw;
-        }
         catch (Exception exception)
         {
-            trail.Add("Failed", nodeId, invocationId, descriptor.MethodName,
+            recordFailure(exception);
+            // Cancellation occurs in the worker as soon as the exception
+            // is detected, not only when the scheduler later awaits the task.
+            linked.Cancel();
+            trail.Add(exception is OperationCanceledException ? "Cancelled" : "Failed",
+                nodeId, invocationId, descriptor.MethodName,
                 durationMs: clock.Elapsed.TotalMilliseconds, detail: exception.GetType().Name);
+            logException(exception, nodeId, invocationId);
             throw;
         }
     }

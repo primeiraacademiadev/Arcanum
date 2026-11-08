@@ -2,11 +2,12 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 
 namespace Arcanum.Framework;
 
 // Execution-local, append-only and thread-safe. No mutable business objects are retained.
-internal sealed class ExecutionTrail(CapabilityOptions options, bool traceEnabled)
+internal sealed class ExecutionTrail(CapabilityOptions options, bool traceEnabled, ILogger logger)
 {
     private readonly object _gate = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -70,6 +71,9 @@ internal sealed class ExecutionTrail(CapabilityOptions options, bool traceEnable
         }
         catch (Exception exception) when (exception is JsonException or NotSupportedException or InvalidOperationException)
         {
+            // Snapshot failures are non-fatal but still exceptions: never hide
+            // them from the host's structured logger.
+            logger.LogError(exception, "Arcanum Trace snapshot serialization failed");
             return ($"\"[snapshot unavailable: {exception.GetType().Name}]\"", false);
         }
     }
