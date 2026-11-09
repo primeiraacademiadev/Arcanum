@@ -13,7 +13,7 @@ PR #20 proves graph-local NodeId, `@spawn`, dynamic convergence, shared Data Con
 3. Retain graph-controlled `@spawn`. Future `@call`/`@publish`/`@save`/`@load`/`@query` are Process-backed and **RFU**, not a second execution engine.
 4. Distinguish per-Capability `policies` from .NET Host `Options`; add global deadline with Capability override.
 5. Introduce transversal event/handler pointcuts with edge override support but **no implicit graph segments**.
-6. Delegate response construction to `ResponseResolver` based on the typed Data Context; multiple terminal candidates result in an exception.
+6. Delegate response construction to `ResponseResolver` based on the typed Data Context; multiple terminal candidates or independent direct producers of the response result in an exception. An explicit Process may aggregate intermediate data.
 
 ## Rationale
 

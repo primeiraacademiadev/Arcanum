@@ -50,7 +50,7 @@ The shorthand `{intention}:@302?{url}` is recorded for future compact diagram/DS
 
 **vNext default: exception when more than one terminal response decision appears, even if statuses match.** Do not choose by first/last observed completion or attempt an implicit merge.
 
-Several Processes may contribute *intermediate data* to one eventual response. That is different from multiple competing terminal decisions. On conflict: log, cancel and drain the started work, preserve diagnostics. A cancellation does not authorize silently dropping running work.
+Several Processes may produce *intermediate data* that one explicit aggregating Process uses to create **one** response object. This is distinct from **multiple Processes independently producing the response**. The vNext default rejects multiple direct response contributors, rather than silently relying on last-writer-wins for the response-bound variable; the response contract/compiler must track that provenance. On conflict: log, cancel and drain started work. A cancellation never authorizes silently dropping running work.
 
 Possible future strategies, **RFU only**:
 

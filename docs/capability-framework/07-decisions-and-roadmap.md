@@ -18,7 +18,7 @@
 | CF-10 | Capability `policies` and Microsoft-style Host `Options` have distinct meanings |
 | CF-11 | Transversal events/pointcut handlers with global and edge overrides, but no inherited graph segments now |
 | CF-12 | `ResponseResolver` reads typed response from Data Context according to Capability output contract |
-| CF-13 | More than one terminal response candidate raises exception, including identical HTTP codes |
+| CF-13 | Multiple competing response decisions or independent direct producers of the final response raise exception; no implicit merge or last-writer-wins |
 
 These are **conceptual directions**, not confirmation that every JSON property, precedence rule or public CLR contract is approved.
 
@@ -103,7 +103,7 @@ These are *responsibility boundaries*, not a required collection of public inter
 - Step, depth and global timeout independently verified.
 - Concurrent exceptions all logged, first immediately cancels, original fault and trail survive.
 - Non-cooperative finite worker is awaited; no new work after observed cancellation.
-- Response read from declared typed context; multiple terminal candidates throw even with identical status.
+- Response read from declared typed context; multiple terminal candidates or independent direct producers of the response throw, even with identical status. Intermediate data may feed one explicit aggregating Process.
 - Trace input/output snapshots, sequence/timestamps, method durations and causal invocation IDs verified.
 - Handler tests added when implemented: global error response, edge-local pointcut, failure without infinite recursion.
 
