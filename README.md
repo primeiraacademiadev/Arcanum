@@ -1,5 +1,15 @@
 # Arcanum
 
+
+## Capability Framework — arquitetura da próxima versão
+
+A [especificação vNext (Draft 0.3)](docs/capability-framework/README.md)
+organiza Models, NodeTemplates, contexto de dados, execução, eventos/handlers,
+ResponseResolver, decisões e roadmap. **É uma proposta de evolução**, não o
+contrato JSON implementado no protótipo atual. Consultar também
+[ADR-0003](docs/adr/0003-capability-templates-and-boundaries.md).
+
+
 Plataforma de classificação de recursos, controlo de acessos e concentração de eventos de auditoria.
 
 ## Primeiro protótipo: Capability Framework

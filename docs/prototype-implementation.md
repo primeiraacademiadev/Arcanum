@@ -1,5 +1,11 @@
 # Arcanum Framework — Executable Prototype
 
+
+> This page documents the executable **PR #20** code. The next architecture
+> iteration is a distinct [Capability Framework vNext working specification](capability-framework/README.md).
+> Its NodeTemplate, policy, handler and ResponseResolver syntax is **not yet implemented**.
+
+
 Status: implementation on `feat/capability-framework-poc`. Small technical PoC, **not** the Audit Concentrator business implementation.
 
 ## Run locally

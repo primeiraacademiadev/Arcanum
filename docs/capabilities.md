@@ -1,5 +1,13 @@
 # Arcanum — Capabilities, Processes and Graph Runtime
 
+
+> **Current implementation (PR #20), not vNext.** The proposed NodeTemplate/Model
+> architecture, explicit typed Data Context, policies, transversal handlers and
+> ResponseResolver are documented separately in the
+> [Capability Framework vNext specification](capability-framework/README.md).
+> Do not apply those illustrative JSON examples to the current runtime.
+
+
 Status: **experimental runtime prototype** · updated 2026-11-08. The graph and Process contracts below describe the current PoC, not a production workflow service.
 
 ## Design principles

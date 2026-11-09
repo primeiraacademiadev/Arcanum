@@ -24,3 +24,21 @@ Status terms: **Agreed** = stated decision; **Proposed** = design direction stil
 | D-018 | Open | Exact publish JSON, actor taxonomy, idempotency response semantics and handling of malformed inputs. |
 
 Decisions can be promoted to ADRs when we have a specific contextual trade-off and rationale. Do not turn the entire register into irreversible commitments.
+
+
+## Capability Framework — next-prototype decisions (2026-11-09)
+
+See [the structured vNext register](capability-framework/07-decisions-and-roadmap.md)
+and [ADR-0003](adr/0003-capability-templates-and-boundaries.md) for context and
+for distinctions between agreed direction, proposals and RFU.
+
+| ID | Status | Decision / question |
+| --- | --- | --- |
+| CF-01 | Agreed direction | Model → NodeTemplate → Node; separate identities, typed contracts and named result bindings. |
+| CF-02 | Agreed direction | Data Context variables identified by (name, type), shared with normal CLR reference/value semantics. |
+| CF-03 | Agreed direction | Keep @spawn; reachability-based convergence, global drain and immediate error cancellation. |
+| CF-04 | Agreed direction | Per-Capability policies instead of Options; Host Options remain, plus overridable global timeout. |
+| CF-05 | Agreed direction | ResponseResolver reads typed contract object from Data Context; multiple response decisions raise exception. |
+| CF-06 | Agreed direction | Transversal events/handlers and edge-level overrides; no graph segments for now. |
+| CF-07 | Deferred (RFU) | Process-backed @call/@publish/@save/@load/@query, requiring Models and optional targeting. |
+| CF-08 | Proposed | Exact template schema, pointcut precedence, error-handler ordering and response wire contract. |
