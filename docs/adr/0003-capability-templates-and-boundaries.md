@@ -1,6 +1,6 @@
 # ADR-0003: NodeTemplates and separation of Capability runtime responsibilities
 
-**Status:** accepted in concept; detailed schema and event/response contracts remain **proposed** · 2026-11-09.
+**Status:** accepted architectural direction; **Capability JSON Draft 0.4 core implemented**, remaining handler/explicit-response extensions RFU · 2026-11-10.
 
 ## Context
 
@@ -31,3 +31,7 @@ NodeTemplates reduce repetition, allow declarative and reflective contract check
 Direct Node → Process association is simpler now but less reusable; retained as **current PoC only**. A separate Operation engine is rejected for now. Implicit inherited handler segments and first/last result selection are not part of vNext.
 
 See [vNext specification](../capability-framework/README.md) and [open questions](../capability-framework/07-decisions-and-roadmap.md).
+
+## Implementation follow-up (2026-11-10)
+
+The Draft 0.4 executable subset (Models, NodeTemplates, explicit typed bindings, unique Data Context names, global timeout, implicit ResponseResolver and non-destructive contract synchronizer) is now implemented in PR #20. Legacy JSON remains supported during migration. Handler strategies and announced responses/hashing are future work. See [the executable specification](../capability-framework/08-capability-json-v0.4.md).

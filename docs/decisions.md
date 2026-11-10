@@ -38,7 +38,9 @@ for distinctions between agreed direction, proposals and RFU.
 | CF-02 | Agreed direction | Data Context variables identified by (name, type), shared with normal CLR reference/value semantics. |
 | CF-03 | Agreed direction | Keep @spawn; reachability-based convergence, global drain and immediate error cancellation. |
 | CF-04 | Agreed direction | Per-Capability policies instead of Options; Host Options remain, plus overridable global timeout. |
-| CF-05 | Agreed direction | ResponseResolver reads typed contract object from Data Context; multiple response decisions raise exception. |
+| CF-05 | Implemented core / RFU | Implicit ResponseResolver reads typed Data Context after completion; announced response conflicts/hash are RFU. |
 | CF-06 | Agreed direction | Transversal events/handlers and edge-level overrides; no graph segments for now. |
 | CF-07 | Deferred (RFU) | Process-backed @call/@publish/@save/@load/@query, requiring Models and optional targeting. |
-| CF-08 | Proposed | Exact template schema, pointcut precedence, error-handler ordering and response wire contract. |
+| CF-08 | Mixed | Draft 0.4 template schema and sync tool implemented; pointcut/handler ordering and explicit response contract still RFU. |
+
+**Draft 0.4 (2026-11-10):** [Executable Capability JSON specification](capability-framework/08-capability-json-v0.4.md), [schema](../schemas/capability-json-v0.4.schema.json) and [status matrix](capability-framework/07-decisions-and-roadmap.md).

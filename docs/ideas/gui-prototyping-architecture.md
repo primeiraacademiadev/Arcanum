@@ -1,6 +1,6 @@
 # Idea — GUI prototyping guided by architectural strategies
 
-**Status:** exploration backlog / RFU · 2026-11-10. Not part of Capability JSON 0.4 delivery.
+**Status:** exploration backlog / RFU · 2026-11-10 · [GitHub issue #21](https://github.com/primeiraacademiadev/Arcanum/issues/21). Not part of Capability JSON 0.4 delivery.
 
 ## Hypothesis
 

@@ -1,112 +1,86 @@
-# 07 — Decisions, implementation gaps and roadmap
+# 07 — Decisions, implementation status and roadmap
 
-**Status:** design decision log + proposed delivery sequence · 2026-11-09. [Index](README.md).
+**Status:** Capability JSON **Draft 0.4**, 2026-11-10 · [index](README.md) · [executable specification](08-capability-json-v0.4.md).
 
-## Agreed architectural direction
+## Agreed architecture and current implementation
 
-| ID | Decision |
-| --- | --- |
-| CF-01 | Capability JSON owns graph topology; each Process returns one result `(Data, Intention)` and does not pick successors |
-| CF-02 | Distinct Models, NodeTemplates and Node instances; NodeId is stable; NodeExecutionId is runtime-only |
-| CF-03 | NodeTemplate describes CLR Process, constructor resources, Execute inputs and typed output, validated on startup |
-| CF-04 | Execution variables identified as `(name, type)`; missing data throws; every result mapped to a named output |
-| CF-05 | Native .NET reference/value semantics; no implicit isolation of mutable data or DI scoped services |
-| CF-06 | `@spawn` on edges supports multiple unconditional parallel continuations; not returned by Processes |
-| CF-07 | Dynamic convergence depends on whether running/scheduled Nodes can still reach the waiting Node; divergent work continues |
-| CF-08 | Separate `maxSteps`/`maxDepth` and one global timeout with Capability override |
-| CF-09 | All detected exceptions logged; first failure cancels immediately; all started work drained; original exception and trail retained |
-| CF-10 | Capability `policies` and Microsoft-style Host `Options` have distinct meanings |
-| CF-11 | Transversal events/pointcut handlers with global and edge overrides, but no inherited graph segments now |
-| CF-12 | `ResponseResolver` reads typed response from Data Context according to Capability output contract |
-| CF-13 | Multiple competing response decisions or independent direct producers of the final response raise exception; no implicit merge or last-writer-wins |
-
-These are **conceptual directions**, not confirmation that every JSON property, precedence rule or public CLR contract is approved.
-
-## Unsettled implementation details
-
-| Topic | Remains open |
-| --- | --- |
-| Template contract | Whether constructor `resources` must be written or inferred; allowed Node overrides |
-| Data Context | Same name with multiple types, exact vs assignable type matching, explicit nullability |
-| Process access | Restriction against direct Data Context access is **proposed**, not separately ratified |
-| Convergence | Multiple arrivals and cyclic/re-entrant deadlock analysis |
-| Timeout | Default duration and handler-specific deadlines |
-| Events/handlers | Concrete pointcut schema, edge transition vs directly activated invocation, add/replace/disable, ordering, failure recursion |
-| Error lifecycle | OnError dispatch relative to draining, token/scope, multiple exceptions, response selection |
-| Response contract | Structured return type, headers/body, adapter/channels, redirect validation |
-| Channels | REST/AMQ/Kafka exposure declaration is a direction without a complete schema |
-
-Resolve these from concrete use cases; do not fill blanks with arbitrary rules.
-
-## Deferred / RFU
-
-- Process-backed `@call`, `@publish`, `@save`, `@load`, `@query`, each with a Model and optional `targeting`.
-- `foreignKey` and `externalKey` behavior, automated external-reference mapping.
-- More template features, codegen accelerators, advanced pointcuts/segments, custom error handlers.
-- Response strategies `additive` and `firstResultAndCancelOthers`.
-- Durable Outbox, trail persistence/replay, distributed compensation, editor/graph generation.
+| Decision | Architectural direction | Prototype status |
+| --- | --- | --- |
+| CF-01 | Capability JSON is human/AI functional specification; **C# contracts authoritative** for technical signatures | Validated at startup |
+| CF-02 | Separate Models, reusable NodeTemplates, and graph-local Node instances | **Implemented**, legacy schema remains accepted |
+| CF-03 | Unique data **name** with associated CLR type, typed binding, polymorphic assignability and unconditional compatible replacement | **Implemented** in vNext |
+| CF-04 | Explicit input and output names; no vNext type-only fallback | **Implemented** |
+| CF-05 | One `ProcessResult<T>(Data, Intention)` per Process, compiled CLR invocation delegates | **Implemented** |
+| CF-06 | Unconditional `@spawn` edge(s), independent of returned intention | **Implemented** |
+| CF-07 | Join waits for all **possibly reaching** active/scheduled work; divergent work continues | **Implemented** with JoinCoordinator, cyclic behavior remains open |
+| CF-08 | Distinct `maxSteps`/`maxDepth` and a single global timeout overridable per Capability | **Implemented**; Host timeout default is configurable |
+| CF-09 | All detected exceptions logged; immediate cancellation, drain started tasks and preserve original fault + Execution Trail | **Implemented** |
+| CF-10 | Capability `policies` vs Microsoft-style Host `Options` | **Implemented** |
+| CF-11 | Response from the declared named typed Data Context variable **after the whole implicit workflow finishes** | **Implemented** in ResponseResolver |
+| CF-12 | Contract synchronizer proposes JSON based on CLR signature drift without rewriting behavior | **Implemented**, non-destructive CLI |
+| CF-13 | Events/handlers/pointcuts with edge overrides and **no inherited segments** | **Design direction**, **not implemented** |
+| CF-14 | Announced responses: hash at announcement, rehash at conclusion, conflict on change or multiple response announcements | **RFU**; no early responses in vNext |
 
 ## Implementation gap matrix
 
-| Topic | PR #20 executable baseline | Next version |
+| Topic | Legacy PoC | Draft 0.4 executable |
 | --- | --- | --- |
-| Nodes | `graph.nodes[id].process` refers to CLR class | `nodes[id].template` + reusable `templates` and `models` |
-| Method binding | `[FromCapabilityData]`/parameter name/type fallback | Explicit Node input binding by `(name, type)` |
-| Data storage | Dictionary by name; one associated type | Explicit `(name, type)` identity |
-| Returned data | `[ReturnName]`/`saveResultAs` | Mandatory named output binding |
-| Rules | `MaxSteps` and `MaxDepth` directly on definition | `policies` and global `timeout`; Host `Options` |
-| Parallelism | **`@spawn` already implemented** | Preserve existing semantics |
-| Convergence | Conservative runtime reachability | Preserve/test current active-path algorithm, including divergence and cycles |
-| Responses | `@complete`/`@stop`/`@fail`, same terminal may have multiple arrivals | Explicit response directives and **one candidate only** |
-| Response implementation | Capability result + demo HTTP mapping | `ResponseResolver` with Data Context contract |
-| Handlers | Error logging/cancellation, no generic pointcuts | Generic event/handler model, introduced by use case |
-| Operations | Application CLR Processes | Process-backed Operations, **RFU** |
+| Process metadata | `processes` keyed by CLR class | `models` + `templates` keyed by logical aliases |
+| Node declaration | `node.process` and optional `saveResultAs` | `node.template` + `bindings.inputs/outputs` |
+| Input resolution | Parameter-name/attribute/compatible-type fallback | Exact name from Node binding; type-checked with CLR polymorphism |
+| Results | `[ReturnName]` and Process metadata | Required named typed result binding |
+| Capability response | `contract.responses` keyed by `@complete`/`@stop` | One `contract.response` read after global completion |
+| Graph termination | Mandatory legacy terminal edge | Ordinary leaf Nodes, no `@complete` edge required |
+| Execution rules | Definition-level `maxSteps`/`maxDepth` | `policies.maxSteps`/`maxDepth`/`timeout` |
+| Timeout | No deadline | Global cooperative deadline and Timeout breadcrumb |
+| Contract sync | Manual | Non-destructive `tools/Arcanum.ContractSync` and reflection validation |
+| `@spawn`/joins | Already implemented | Preserved, tested in vNext fan-out and dynamic join |
+| Handlers and other Operations | Not implemented | **RFU**, not silently recognized |
+| Early response hash | Not implemented | **RFU**, only implicit response executes |
 
-Current [runtime docs](../capabilities.md) and [run guide](../prototype-implementation.md) are the sources for **implemented** behavior, not this proposal.
+## Still to design
 
-## Proposed refactoring responsibilities
+- The exact public contract for a future **Node feature override** (other than bindings), legal merge rules and resource metadata evolution.
+- Nullability and optional inputs, and edge cases involving same name with a polymorphic declared type.
+- Formal treatment of **cyclic joins/re-entrant concurrent arrivals**; `maxDepth` is not a deadlock proof.
+- A per-event handler strategy, pointcut expression language, ordering and failure lifecycle. Local edge override semantics remain deliberately restricted to **no segments**.
+- Explicit response announcement syntax, canonical serialization and hash, multiple announced response conflicts and alternative strategies `additive`/`firstResultAndCancelOthers`.
+- Channel specification (REST/AMQ/Kafka), richer adapter contracts, redirect safety, serialization formats.
+- Complete declaration/semantics of `foreignKey` and `externalKey`.
+- Future Process-backed Operations `@call`, `@publish`, `@save`, `@load`, `@query`, each requiring a Model and possibly a `targeting` Data Context variable.
 
-| Responsibility | Candidate component |
-| --- | --- |
-| Validate/prepare Model, Template, Node and policy | Capability Compiler |
-| Inspect signatures and cache invoke delegates | Process Compiler |
-| Coordinate Capability lifecycle | `CapabilityResolver` |
-| Schedule invocations | Execution Scheduler |
-| Calculate potential arrivals / convergence | Join Coordinator |
-| Read/store typed variables | `DataResolver` |
-| Invoke application/generated Processes | Process Runtime |
-| Dispatch events and pointcut strategies | Event Dispatcher |
-| Cancellation, timeout, drain | Execution Supervisor |
-| Resolve response | `ResponseResolver` |
-| Capture causal breadcrumbs and Trace | Execution Trail |
+## Validation and tests
 
-These are *responsibility boundaries*, not a required collection of public interfaces/classes. The goal is a smaller, testable resolver.
+The executable core has dedicated tests for:
+- Template reuse under separate Node IDs, CLR signature mismatch rejected before execution.
+- Explicit name resolution, name uniqueness, polymorphic read and replacement.
+- Implicit response from context with no terminal edge.
+- Global timeout override and cancellation diagnostics.
+- Two `@spawn` edges, dynamic join and draining a detached branch.
+- Non-destructive C# → JSON contract synchronization and preservation of functional topology.
+- Existing legacy tests: step/depth budgets, trace redaction, concurrent failures, legacy terminal behavior.
 
-## Delivery sequence
+Run:
 
-1. Model/template/node catalogue and startup validation, allowing one Process template to be used in several Nodes.
-2. Explicit typed Data Context and compiled delegates; verify CLR mutation/value/return semantics.
-3. Extract scheduler and convergence logic, preserve `@spawn`, global completion and causal trail.
-4. Global timeout + Capability override, fault supervision and cooperative cancellation.
-5. Single-candidate ResponseResolver with typed output from context, conflict exception and adapter mapping.
-6. Minimal global `OnError` policy (e.g. `@500`), then pointcuts/edge handlers only when a use case justifies them.
-7. Introduce other Operations individually, outside this initial refactor.
+```bash
+dotnet restore Arcanum.slnx
+dotnet build Arcanum.slnx
+dotnet test Arcanum.slnx
+dotnet run --project src/Arcanum.Demo.Api
+```
 
-## Minimum acceptance suite
+CI includes Build/Test/HTTP smoke. See [prototype instructions](../prototype-implementation.md).
 
-- Same template in several Nodes, each NodeExecutionId unique even on revisits.
-- Constructor/Execute contract checked before execution; invalid trusted-type mappings rejected.
-- Missing or wrong `(name, type)` fails; named outputs replace old typed values.
-- Reference mutations and copied value types behave according to .NET semantics.
-- Several `@spawn` successors overlap; join waits for possible arrivals; divergent branch runs independently.
-- Capability does not return before all started workers settle.
-- Step, depth and global timeout independently verified.
-- Concurrent exceptions all logged, first immediately cancels, original fault and trail survive.
-- Non-cooperative finite worker is awaited; no new work after observed cancellation.
-- Response read from declared typed context; multiple terminal candidates or independent direct producers of the response throw, even with identical status. Intermediate data may feed one explicit aggregating Process.
-- Trace input/output snapshots, sequence/timestamps, method durations and causal invocation IDs verified.
-- Handler tests added when implemented: global error response, edge-local pointcut, failure without infinite recursion.
+## Proposed next increments
 
-## Documentation ownership
+1. **Harden Draft 0.4:** nullability contract, typed-context invariants, more polymorphic and cyclic-join tests, schema validation in CI.
+2. **Reduce resolver responsibilities:** continue extracting supervision, typed binding/compilation and scheduler behavior behind testable boundaries where appropriate.
+3. **Handlers:** implement only a concrete initial global `OnError` strategy and then use a real notification case to decide edge pointcuts and composition.
+4. **Explicit responses:** define announcement syntax and canonical response hash, then validate conflict behavior.
+5. Add **Process-backed Operations** only once a concrete need determines their contract.
 
-Update this **design folder** as decisions evolve. Update [prototype run instructions](../prototype-implementation.md) **only when runtime code changes**. Promote substantial trade-offs into [ADRs](../adr/0003-capability-templates-and-boundaries.md), recording accepted versus open elements.
+These are suggested priorities, not authorization to implement the RFU features now.
+
+## Related exploration
+
+The future [GUI prototyping with architectural strategies](../ideas/gui-prototyping-architecture.md) is tracked in [issue #21](https://github.com/primeiraacademiadev/Arcanum/issues/21) and does not change Capability JSON 0.4 scope.
