@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Arcanum · Capability Atlas</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand" aria-label="Arcanum Capability Atlas">
+        <span class="brand-mark" aria-hidden="true">A<span>↗</span></span>
+        <span class="brand-copy"><strong>Arcanum</strong><small>CAPABILITY ATLAS <i>·</i> PROTOTYPE</small></span>
+      </div>
+      <div class="header-title"><span class="header-line"></span><span id="active-title">Explorador de Capabilities</span><span id="active-version"></span></div>
+      <div class="header-actions">
+        <button type="button" class="button button-subtle" id="open-files" title="Importar um ou mais JSON">+ Ficheiros</button>
+        <button type="button" class="button button-primary" id="open-folder" title="Importar os JSON de uma pasta local"><span aria-hidden="true">▤</span> Carregar pasta</button>
+      </div>
+    </header>
+
+    <main class="main-layout">
+      <aside class="file-sidebar" aria-label="Documentos">
+        <div class="side-heading">
+          <div><div class="eyebrow">WORKSPACE</div><h2>Capabilities</h2></div>
+          <button id="close-all" type="button" class="icon-button" title="Fechar todos os ficheiros" aria-label="Fechar todos os ficheiros">✕</button>
+        </div>
+        <label class="search-wrap">
+          <span aria-hidden="true">⌕</span>
+          <input id="search-files" type="search" placeholder="Filtrar ficheiros..." autocomplete="off">
+        </label>
+        <div class="file-group-heading"><span>Ficheiros carregados</span><span class="count-pill" id="file-count">0</span></div>
+        <div class="file-list" id="file-list" role="listbox" aria-label="Escolher Capability"></div>
+        <div class="sidebar-footer">
+          <div class="hint-art"><span>◈</span><div><strong>Espaço de exploração</strong><small>Arrasta o canvas para navegar. Usa a roda do rato para ampliar.</small></div></div>
+          <div class="footer-line"><span class="status-dot"></span><span id="source-hint">À espera de ficheiros</span></div>
+        </div>
+      </aside>
+
+      <section class="canvas-shell" aria-label="Grafo da Capability">
+        <div class="canvas-topbar">
+          <div class="canvas-breadcrumb"><span class="crumb-root">GRAFO</span><span class="crumb-divider">/</span><strong id="graph-name">Sem Capability selecionada</strong></div>
+          <div class="canvas-controls">
+            <button id="zoom-out" class="icon-button" aria-label="Diminuir zoom" title="Diminuir zoom">−</button>
+            <span id="zoom-label" class="zoom-display" aria-live="polite">100%</span>
+            <button id="zoom-in" class="icon-button" aria-label="Aumentar zoom" title="Aumentar zoom">+</button>
+            <span class="control-separator"></span>
+            <button id="fit-view" class="button button-tool" type="button" title="Enquadrar todo o grafo">⤢ <span>Enquadrar</span></button>
+          </div>
+        </div>
+        <div class="canvas-viewport" id="canvas-viewport">
+          <svg id="graph-svg" class="graph-svg" role="img" aria-label="Representação interativa do grafo" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 7 4 L 0 7 Z" fill="#62758e"/></marker>
+              <marker id="arrow-spawn" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 7 4 L 0 7 Z" fill="#34cdb2"/></marker>
+              <marker id="arrow-active" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M 0 1 L 7 4 L 0 7 Z" fill="#9fb6ff"/></marker>
+            </defs>
+            <g id="graph-world"></g>
+          </svg>
+          <div class="empty-canvas" id="empty-canvas">
+            <div class="empty-orbit" aria-hidden="true"><span>⌘</span></div>
+            <h2>Explora a tua arquitetura</h2>
+            <p>Carrega uma pasta com ficheiros Capability JSON para visualizar os grafos, os contratos e as dependências.</p>
+            <button type="button" class="button button-primary" id="empty-open-folder">Carregar uma pasta</button>
+            <small>Também podes importar vários ficheiros individualmente.</small>
+          </div>
+          <div class="canvas-info" id="canvas-info" hidden>
+            <span class="info-chip" id="node-stat">0 nodes</span>
+            <span class="info-chip" id="edge-stat">0 edges</span>
+            <span class="info-chip info-chip-alt" id="format-stat">JSON</span>
+          </div>
+          <div class="canvas-legend" id="canvas-legend" hidden>
+            <span><i class="legend-dot legend-contract"></i>Contrato</span>
+            <span><i class="legend-dot legend-process"></i>Process</span>
+            <span><i class="legend-line legend-spawn"></i>@spawn</span>
+            <span><i class="legend-dot legend-active"></i>Dependência</span>
+          </div>
+          <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+        </div>
+      </section>
+
+      <aside class="inspector" aria-label="Detalhes e dependências">
+        <div class="inspector-heading"><div class="eyebrow">INSPECTOR</div><h2>Detalhes</h2></div>
+        <div id="node-details" class="details-area"><div class="details-empty">Seleciona um nó para examinar o Process, contratos e bindings.</div></div>
+        <div class="pane-divider"></div>
+        <div class="dependency-title">
+          <div><div class="eyebrow">DEPENDÊNCIAS</div><h2>Estruturas</h2></div>
+          <button id="clear-highlight" class="button-clear" type="button" title="Limpar destaques">Limpar</button>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Estruturas da Capability">
+          <button type="button" role="tab" id="tab-data" aria-controls="context-list" aria-selected="true" class="tab active" data-tab="data">Data Context <span id="data-count">0</span></button>
+          <button type="button" role="tab" id="tab-di" aria-controls="context-list" aria-selected="false" class="tab" data-tab="di">DI / Recursos <span id="di-count">0</span></button>
+        </div>
+        <div id="context-list" class="context-list" role="tabpanel" aria-label="Estruturas"></div>
+        <div class="inspector-footer"><span class="status-dot"></span><span id="inspect-footer">Análise estática dos contratos JSON; não contém valores de runtime.</span></div>
+      </aside>
+    </main>
+    <input id="folder-input" type="file" webkitdirectory directory multiple hidden aria-label="Selecionar pasta">
+    <input id="files-input" type="file" accept=".json,application/json" multiple hidden aria-label="Selecionar ficheiros">
+  </div>
+  <script type="module" src="./viewer.mjs"></script>
+</body>
+</html>
