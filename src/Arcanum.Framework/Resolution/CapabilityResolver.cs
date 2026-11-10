@@ -168,9 +168,12 @@ public sealed class CapabilityResolver(
 
                 var nodeConfig = definition.Graph.Nodes[completed.NodeId];
                 var descriptorOfResult = processes.GetDescriptor(nodeConfig.Process);
-                var metadata = definition.Processes[nodeConfig.Process];
-                dataResolver.Store(data, nodeConfig.SaveResultAs ??
-                    metadata.SaveResultAs ?? descriptorOfResult.ReturnName!, result);
+                var resultName = nodeConfig.Template is not null
+                    ? nodeConfig.Bindings.Outputs.Single().Value
+                    : nodeConfig.SaveResultAs ??
+                      definition.Processes[nodeConfig.Process].SaveResultAs ??
+                      descriptorOfResult.ReturnName!;
+                dataResolver.Store(data, resultName, result);
 
                 var conditionalEdges = definition.Graph.Edges
                     .Where(edge => edge.From == completed.NodeId &&
