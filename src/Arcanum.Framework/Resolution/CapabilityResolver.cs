@@ -95,11 +95,10 @@ public sealed class CapabilityResolver(
 
                 // No special Fork/Join nodes. A pending arrival may proceed once
                 // no OTHER running or pending execution can still reach this node.
-                var ready = pending.Keys
-                    .Where(node => definition.Graph.IncomingCount(node) <= 1 ||
-                        (!running.Any(active => definition.Graph.CanReach(active.NodeId, node)) &&
-                         !pending.Keys.Any(other => other != node && definition.Graph.CanReach(other, node))))
-                    .ToArray();
+                var ready = JoinCoordinator.ReadyNodes(
+                    definition.Graph,
+                    pending.Keys,
+                    running.Select(active => active.NodeId));
 
                 if (steps + ready.Length > maxSteps)
                 {
