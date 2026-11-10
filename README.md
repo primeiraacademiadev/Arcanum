@@ -23,6 +23,7 @@ dados nos métodos `Execute`/`ExecuteAsync`.
 - `src/Arcanum.Demo.Api/Models/` e `Services/` — contratos e serviços scoped da demo.
 - `src/Arcanum.Demo.Api/capabilities/` — grafos de exemplo em JSON.
 - `tests/Arcanum.Framework.Tests/` — testes de execução, DI, concorrência e limites.
+- [`tools/Arcanum.CapabilityViewer/`](tools/Arcanum.CapabilityViewer/README.md) — visualizador Web do grafo, contratos, Data Context e DI.
 
 **O JSON da Capability determina quais as classes executáveis.** A framework
 resolve apenas os tipos aí declarados, exclusivamente nos assemblies autorizados,
@@ -51,6 +52,13 @@ dotnet restore Arcanum.slnx
 dotnet test Arcanum.slnx
 dotnet run --project src/Arcanum.Demo.Api
 ```
+
+### Visualizador Capability Atlas
+
+A Demo API serve o [Capability Atlas](tools/Arcanum.CapabilityViewer/README.md)
+em `/viewer/`: carrega os exemplos automaticamente, permite importar uma
+pasta local, navegar num canvas com pan/zoom, selecionar Nodes e destacar
+dependências do Data Context e recursos de DI.
 
 Os exemplos vNext estão em `demo.capability-json.json`,
 `demo.capability-json-parallel.json` e `demo.capability-json-timeout.json`.
