@@ -95,6 +95,30 @@ public sealed class CapabilityJsonVNextTests
     }
 
     [Fact]
+    public void Contract_sync_proposes_updated_JSON_without_changing_the_graph_or_description()
+    {
+        using var provider = Provider();
+        var original = File.ReadAllText(Path.Combine(AppContext.BaseDirectory,
+            "capabilities", "demo.capability-json.json"));
+        var changed = original.Replace(
+            "\\"result\\": \\"DemoInput\\"",
+            "\\"result\\": \\"MissingModel\\"",
+            StringComparison.Ordinal);
+
+        var tool = new CapabilityContractSynchronizer(
+            provider.GetRequiredService<ProcessCatalog>());
+        var report = tool.Analyze(changed);
+        Assert.True(report.HasDrift);
+        Assert.Contains(report.Differences, x => x.Contains("ProcessResult<T>", StringComparison.Ordinal));
+        Assert.Contains("The same EchoActivity template", report.ProposedJson);
+        Assert.Contains("\\"firstEcho\\"", report.ProposedJson);
+        var proposal = CapabilityCatalog.ParseJson(report.ProposedJson);
+        _ = new CapabilityCatalog([proposal],
+            provider.GetRequiredService<ProcessCatalog>(), new CapabilityOptions());
+        Assert.False(tool.Analyze(report.ProposedJson).HasDrift);
+    }
+
+    [Fact]
     public void Input_model_and_response_type_are_checked_against_descriptors()
     {
         using var provider = Provider();
