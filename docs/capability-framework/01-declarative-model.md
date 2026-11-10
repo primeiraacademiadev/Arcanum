@@ -1,6 +1,8 @@
 # 01 — Declarative Capability model
 
-**Status:** model/template/node separation **agreed direction**; exact JSON and overrides **proposed**. Back to [index](README.md).
+> **Draft 0.4 update:** Models, NodeTemplates, explicit Node bindings and C# contract validation are now **implemented**. CLR signatures are the technical authority; constructor `resources` are optional and may omit `ILogger<T>`. General template-feature overrides remain RFU. Read the [executable specification](08-capability-json-v0.4.md).
+
+**Status:** historical design detail, updated by Draft 0.4 executable contract. [Back to index](README.md).
 
 ## Conceptual sections
 

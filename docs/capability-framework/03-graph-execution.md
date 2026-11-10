@@ -1,6 +1,8 @@
 # 03 — Graph execution, convergence and supervision
 
-**Status:** runtime invariants **agreed**; decomposed scheduler/supervisor interfaces **proposed**. Back to [index](README.md).
+> **Draft 0.4 update:** `@spawn` remains unconditional even for a non-matching business intention. Draft 0.4 allows normal **leaf Nodes without terminal edges**, including nodes with no matching conditional continuation; legacy mapping rules are preserved. Global timeout and Capability policy override are implemented, with provisional Host default of five minutes. See [executable specification](08-capability-json-v0.4.md).
+
+**Status:** historical design detail, updated by Draft 0.4 executable contract. [Back to index](README.md).
 
 ## Functional and system routing
 

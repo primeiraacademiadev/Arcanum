@@ -1,6 +1,8 @@
 # 02 — Data Context, typed bindings and CLR semantics
 
-**Status:** explicit typed contracts and named outputs **agreed direction**; direct context access policy **proposed**. Back to [index](README.md).
+> **Draft 0.4 update:** Data Context variable **name is unique**, with one declared CLR type; `(name, type)` describes its contract rather than independent composite keys. .NET **polymorphic assignability** is accepted. A named output **unconditionally replaces** a compatible stored value. Draft 0.4 uses explicit input names with **no compatible-type fallback**. Legacy binding remains for compatibility. See [executable specification](08-capability-json-v0.4.md).
+
+**Status:** historical design detail, updated by Draft 0.4 executable contract. [Back to index](README.md).
 
 ## Variables identified by `(name, type)`
 

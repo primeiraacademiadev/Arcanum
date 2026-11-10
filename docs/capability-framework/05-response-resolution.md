@@ -1,6 +1,8 @@
 # 05 — ResponseResolver and terminal decisions
 
-**Status:** separate ResponseResolver and single-response policy **agreed direction**; wire details **proposed**. [Index](README.md).
+> **Draft 0.4 update:** The **implicit response is now implemented**: finish all work, then `ResponseResolver` reads `contract.response` from Data Context. **There is no early response announcement** in Draft 0.4, therefore no response-hash or independent-announcement conflict yet. When explicit response announcements are implemented, freeze a canonical response hash at announcement, compare at finalization and reject mutation or multiple competing announcements. Any earlier discussion of multiple *implicit writes* being a conflict is superseded. See [executable specification](08-capability-json-v0.4.md).
+
+**Status:** historical design detail, updated by Draft 0.4 executable contract. [Back to index](README.md).
 
 ## Three separate responsibilities
 
