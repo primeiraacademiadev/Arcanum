@@ -3,10 +3,10 @@
 
 ## Capability Framework — arquitetura da próxima versão
 
-A [especificação vNext (Draft 0.3)](docs/capability-framework/README.md)
+A [especificação Capability JSON (Draft 0.4)](docs/capability-framework/08-capability-json-v0.4.md)
 organiza Models, NodeTemplates, contexto de dados, execução, eventos/handlers,
-ResponseResolver, decisões e roadmap. **É uma proposta de evolução**, não o
-contrato JSON implementado no protótipo atual. Consultar também
+ResponseResolver, decisões e roadmap. **O núcleo vNext já é executável** em paralelo com o JSON legacy; handlers,
+Operations e respostas anunciadas antecipadamente continuam RFU. Consultar também
 [ADR-0003](docs/adr/0003-capability-templates-and-boundaries.md).
 
 
@@ -52,7 +52,14 @@ dotnet test Arcanum.slnx
 dotnet run --project src/Arcanum.Demo.Api
 ```
 
-Consultar [instruções de execução](docs/prototype-implementation.md),
+Os exemplos vNext estão em `demo.capability-json.json`,
+`demo.capability-json-parallel.json` e `demo.capability-json-timeout.json`.
+O `tools/Arcanum.ContractSync` analisa assinaturas C# e propõe alterações
+aos contratos técnicos do JSON sem reescrever a topologia.
+
+Consultar [Capability JSON 0.4](docs/capability-framework/08-capability-json-v0.4.md),
+[JSON Schema](schemas/capability-json-v0.4.schema.json),
+[instruções de execução](docs/prototype-implementation.md),
 [contrato das Capabilities](docs/capabilities.md) e
 [visão do produto](docs/vision.md).
 

@@ -1,9 +1,10 @@
 # Arcanum Framework — Executable Prototype
 
 
-> This page documents the executable **PR #20** code. The next architecture
-> iteration is a distinct [Capability Framework vNext working specification](capability-framework/README.md).
-> Its NodeTemplate, policy, handler and ResponseResolver syntax is **not yet implemented**.
+> This page documents the executable **PR #20** code: legacy graphs plus
+> [Capability JSON Draft 0.4](capability-framework/08-capability-json-v0.4.md)
+> (Models, NodeTemplates, explicit bindings, policies, timeout, implicit
+> ResponseResolver). Generic handlers, Operations and explicit responses are RFU.
 
 
 Status: implementation on `feat/capability-framework-poc`. Small technical PoC, **not** the Audit Concentrator business implementation.
@@ -40,6 +41,40 @@ Content-Type: application/json
 ```
 
 This graph calls the same stateless `CounterProcess` repeatedly and throws `CapabilityExecutionLimitExceededException` before Process invocation #5 (override `maxSteps = 4`). The exception is an engine failure, not a business intention. For successful termination, use `iterations: 4`. `demo.default-loop` omits `maxSteps` and inherits the framework default, configurable through `Arcanum__DefaultMaxSteps`.
+
+## Capability JSON Draft 0.4 — runnable examples
+
+The executable subset is defined in the [Capability JSON 0.4 reference](capability-framework/08-capability-json-v0.4.md)
+and [JSON Schema](../schemas/capability-json-v0.4.schema.json). It uses
+`models`, reusable `templates`, per-Node bindings, a single
+`contract.response` and optional `policies.timeout`.
+
+```http
+POST /capabilities/demo.capability-json/execute
+Content-Type: application/json
+
+{ "value": "hello" }
+```
+
+The demo returns HTTP 200, two Node invocations and a typed `DemoInput`
+from the context variable `finalEcho`, without declaring a terminal edge.
+`demo.capability-json-parallel` exercises two `@spawn` edges, a dynamic join
+and a detached branch. `demo.capability-json-timeout` exercises a global
+deadline.
+
+### Contract Synchronizer
+
+```sh
+dotnet build Arcanum.slnx
+dotnet run --project tools/Arcanum.ContractSync -- \
+  --assembly src/Arcanum.Demo.Api/bin/Debug/net10.0/Arcanum.Demo.Api.dll \
+  --input src/Arcanum.Demo.Api/capabilities/demo.capability-json.json
+```
+
+The synchronizer compares CLR Process signatures against JSON templates and
+prints a non-destructive proposal (exit code 0 aligned, 2 drift, 1 failure).
+It never rewrites descriptions, Node bindings or functional graph topology
+without review.
 
 ## Implemented contracts
 

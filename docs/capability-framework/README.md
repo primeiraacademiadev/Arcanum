@@ -1,14 +1,15 @@
 # Arcanum — Capability Framework vNext
 
-**Status:** working specification draft 0.3 · 2026-11-09. **Not implemented.**  
+**Status:** Capability JSON Draft 0.4 · 2026-11-10. **Core executable; future extensions RFU.**  
 **Baseline:** [PR #20](https://github.com/primeiraacademiadev/Arcanum/pull/20), .NET 10 experimental prototype.
 
-This folder is the structured reference for designing the **next** Capability Framework prototype. It records agreed architectural direction, outstanding decisions and Requirements for Future Use (RFU). **JSON examples here are illustrative and must not be copied into the current executable capability directory.**
+This folder documents **Capability JSON 0.4**. The [executable subset](08-capability-json-v0.4.md) and [JSON Schema](../../schemas/capability-json-v0.4.schema.json) are implemented in PR #20. Examples proposing handlers, explicit responses and future Operations remain **RFU and not executable**.
 
 ## Contents
 
 | Section | What it covers |
 | --- | --- |
+| **[08 — Capability JSON 0.4](08-capability-json-v0.4.md)** | **Executable syntax, example, synchronization tool and scope** |
 | [01 — Declarative model](01-declarative-model.md) | Models, NodeTemplates, Nodes, contracts, identities, policies |
 | [02 — Data Context](02-data-context-and-binding.md) | Named typed variables, bindings, delegates, CLR semantics, DAO/DTO |
 | [03 — Graph execution](03-graph-execution.md) | `@spawn`, convergence, supervision, timeouts, trace |
@@ -24,7 +25,7 @@ This folder is the structured reference for designing the **next** Capability Fr
 - **Agreed direction:** discussed and retained as a design constraint; does not imply implemented.
 - **Proposed:** illustrative schema, recommendation or mechanism requiring a further decision.
 - **RFU/deferred:** preserve for a future concrete use case; **do not implement now**.
-- **Implemented (PR #20):** exists in the experimental code and tests.
+- **Implemented (PR #20):** exists in code and tests; core Draft 0.4 is supported alongside legacy JSON.
 
 ## Invariants
 
@@ -39,4 +40,4 @@ This folder is the structured reference for designing the **next** Capability Fr
 9. `policies` govern Capability behavior; .NET `Options` configure Host defaults.
 10. Cross-cutting handlers can have global pointcuts and edge overrides, but **no graph segments** in the next iteration.
 
-The [current prototype documentation](../capabilities.md) and [execution instructions](../prototype-implementation.md) describe what **already works**. The [gap matrix](07-decisions-and-roadmap.md#implementation-gap-matrix) distinguishes vNext design from that code.
+The [prototype documentation](../capabilities.md) and [execution instructions](../prototype-implementation.md) describe both legacy and Draft 0.4 executable behavior. The [gap matrix](07-decisions-and-roadmap.md#implementation-gap-matrix) distinguishes implementation from future work.
