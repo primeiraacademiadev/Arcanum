@@ -1,0 +1,186 @@
+{
+  "name": "demo.capability-json-parallel",
+  "version": 1,
+  "displayName": "Capability JSON parallel convergence and detached branch",
+  "description": "A vNext graph with two unconditional @spawn edges, a dynamic join, and a detached branch.",
+  "models": {
+    "DemoInput": {
+      "type": "Arcanum.Demo.Api.DemoInput"
+    },
+    "ValidationData": {
+      "type": "Arcanum.Demo.Api.ValidationData"
+    },
+    "String": {
+      "type": "System.String"
+    }
+  },
+  "contract": {
+    "inputs": {
+      "request": {
+        "model": "DemoInput",
+        "source": "$"
+      }
+    },
+    "response": {
+      "name": "combined",
+      "model": "String"
+    }
+  },
+  "templates": {
+    "validate": {
+      "process": "Arcanum.Demo.Api.ValidateProcess",
+      "inputs": {
+        "request": "DemoInput"
+      },
+      "outputs": {
+        "result": "ValidationData"
+      }
+    },
+    "fork": {
+      "process": "Arcanum.Demo.Api.ParallelStartProcess",
+      "inputs": {
+        "validated": "ValidationData"
+      },
+      "outputs": {
+        "result": "ValidationData"
+      }
+    },
+    "alpha": {
+      "process": "Arcanum.Demo.Api.ParallelAlphaProcess",
+      "inputs": {
+        "validated": "ValidationData"
+      },
+      "outputs": {
+        "result": "String"
+      }
+    },
+    "beta": {
+      "process": "Arcanum.Demo.Api.ParallelBetaProcess",
+      "inputs": {
+        "validated": "ValidationData"
+      },
+      "outputs": {
+        "result": "String"
+      }
+    },
+    "join": {
+      "process": "Arcanum.Demo.Api.ParallelJoinProcess",
+      "inputs": {
+        "alpha": "String",
+        "beta": "String"
+      },
+      "outputs": {
+        "result": "String"
+      }
+    }
+  },
+  "graph": {
+    "entry": "validate",
+    "nodes": {
+      "validate": {
+        "template": "validate",
+        "bindings": {
+          "inputs": {
+            "request": "request"
+          },
+          "outputs": {
+            "result": "validated"
+          }
+        }
+      },
+      "fork": {
+        "template": "fork",
+        "bindings": {
+          "inputs": {
+            "validated": "validated"
+          },
+          "outputs": {
+            "result": "forked"
+          }
+        }
+      },
+      "alpha": {
+        "template": "alpha",
+        "bindings": {
+          "inputs": {
+            "validated": "validated"
+          },
+          "outputs": {
+            "result": "alpha"
+          }
+        }
+      },
+      "beta": {
+        "template": "beta",
+        "bindings": {
+          "inputs": {
+            "validated": "validated"
+          },
+          "outputs": {
+            "result": "beta"
+          }
+        }
+      },
+      "gamma": {
+        "template": "beta",
+        "bindings": {
+          "inputs": {
+            "validated": "validated"
+          },
+          "outputs": {
+            "result": "gamma"
+          }
+        }
+      },
+      "join": {
+        "template": "join",
+        "bindings": {
+          "inputs": {
+            "alpha": "alpha",
+            "beta": "beta"
+          },
+          "outputs": {
+            "result": "combined"
+          }
+        }
+      }
+    },
+    "edges": [
+      {
+        "from": "validate",
+        "intention": "valid",
+        "to": "fork"
+      },
+      {
+        "from": "fork",
+        "intention": "ready",
+        "to": "alpha"
+      },
+      {
+        "from": "fork",
+        "intention": "@spawn",
+        "to": "beta"
+      },
+      {
+        "from": "fork",
+        "intention": "@spawn",
+        "to": "gamma"
+      },
+      {
+        "from": "alpha",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "beta",
+        "intention": "done",
+        "to": "join"
+      }
+    ]
+  },
+  "policies": {
+    "maxSteps": 30,
+    "maxDepth": 20,
+    "timeout": "PT30S"
+  }
+}

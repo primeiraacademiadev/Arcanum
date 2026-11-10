@@ -44,6 +44,28 @@ public sealed class CapabilityJsonVNextTests
     }
 
     [Fact]
+    public async Task VNext_multiple_spawn_edges_converge_and_detached_work_is_drained()
+    {
+        using var provider = Provider();
+        using var scope = provider.CreateScope();
+        using var payload = JsonDocument.Parse("""{"value":" AbC "}""");
+        var result = await provider.GetRequiredService<CapabilityJsonDispatcher>().ExecuteAsync(
+            "demo.capability-json-parallel", payload.RootElement, scope.ServiceProvider);
+        Assert.Equal("ABC|abc", Assert.IsType<string>(result.Data));
+        Assert.Equal(6, result.Steps);
+        Assert.Null(result.Intention); // detached leaf and join have independent intentions
+        var join = Assert.Single(result.Breadcrumbs, b => b.NodeId == "join" && b.Kind == "Started");
+        Assert.True(join.Sequence >
+            Assert.Single(result.Breadcrumbs, b => b.NodeId == "alpha" && b.Kind == "Completed").Sequence);
+        Assert.True(join.Sequence >
+            Assert.Single(result.Breadcrumbs, b => b.NodeId == "beta" && b.Kind == "Completed").Sequence);
+        Assert.True(Assert.Single(result.Breadcrumbs, b => b.Kind == "CapabilityCompleted").Sequence >
+            Assert.Single(result.Breadcrumbs, b => b.NodeId == "gamma" && b.Kind == "Completed").Sequence);
+        Assert.Equal(2, result.Breadcrumbs.Count(b =>
+            b.Kind == "Transition" && b.NodeId == "fork" && b.Intention == "@spawn"));
+    }
+
+    [Fact]
     public void CLR_contract_is_authoritative_and_template_drift_fails_during_startup()
     {
         using var provider = Provider();
