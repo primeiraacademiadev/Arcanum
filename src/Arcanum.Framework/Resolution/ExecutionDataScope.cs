@@ -18,12 +18,17 @@ public sealed class ExecutionDataScope
             throw new CapabilityDataException("A data key cannot be blank.");
         if (value is not null && !type.IsInstanceOfType(value))
             throw new CapabilityDataException($"Value for '{name}' is not compatible with '{type.FullName}'.");
-        if (_data.TryGetValue(name, out var previous) && previous.Type != type)
-            throw new CapabilityDataException(
-                $"The data key '{name}' was already used for '{previous.Type.FullName}'.");
-
-        // A loop may revisit a stateless Process. Its latest typed result replaces the previous value.
-        _data[name] = new Entry(type, value);
+        if (_data.TryGetValue(name, out var previous))
+        {
+            // The name alone is unique. A polymorphic replacement must respect
+            // the original declared type and must never change its contract.
+            if (!previous.Type.IsAssignableFrom(type))
+                throw new CapabilityDataException(
+                    $"The data key '{name}' is declared as '{previous.Type.FullName}', not '{type.FullName}'.");
+            _data[name] = new Entry(previous.Type, value);
+        }
+        else
+            _data[name] = new Entry(type, value);
     }
 
     public ExecutionDatum Read(string name)

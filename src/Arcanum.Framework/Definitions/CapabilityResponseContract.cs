@@ -7,4 +7,5 @@ public sealed class CapabilityResponseContract
 
     /// <summary>Declared CLR result type for the chosen execution datum.</summary>
     public string Type { get; set; } = "";
+    public string? Model { get; set; }
 }

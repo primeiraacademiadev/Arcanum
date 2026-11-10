@@ -8,5 +8,7 @@ namespace Arcanum.Framework;
 public sealed class CapabilityNode
 {
     public string Process { get; set; } = "";
+    public string? Template { get; set; }
+    public NodeBindings Bindings { get; set; } = new();
     public string? SaveResultAs { get; set; }
 }

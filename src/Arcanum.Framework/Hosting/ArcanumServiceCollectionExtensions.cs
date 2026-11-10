@@ -46,7 +46,8 @@ public static class ArcanumServiceCollectionExtensions
             .ToArray();
 
         var types = definitions
-            .SelectMany(definition => definition.Processes.Keys)
+.SelectMany(definition =>
+                definition.Processes.Keys.Concat(definition.Templates.Values.Select(t => t.Process)))
             .Distinct(StringComparer.Ordinal)
             .Select(registry.Resolve)
             .ToArray();
