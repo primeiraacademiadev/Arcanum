@@ -1,0 +1,125 @@
+{
+  "name": "demo.parallel-choice",
+  "displayName": "Conditional parallel join",
+  "version": 1,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "combined",
+        "type": "System.String"
+      },
+      "@stop": {
+        "name": "validated",
+        "type": "Arcanum.Demo.Api.ValidationData"
+      }
+    }
+  },
+  "processes": {
+    "Arcanum.Demo.Api.ValidateProcess": {
+      "displayName": "Validate input"
+    },
+    "Arcanum.Demo.Api.ParallelAlphaProcess": {
+      "displayName": "Concurrent alpha"
+    },
+    "Arcanum.Demo.Api.ParallelBetaProcess": {
+      "displayName": "Concurrent beta"
+    },
+    "Arcanum.Demo.Api.ParallelChoiceProcess": {
+      "displayName": "Choose branch"
+    },
+    "Arcanum.Demo.Api.ParallelDetachedProcess": {
+      "displayName": "Detached branch"
+    },
+    "Arcanum.Demo.Api.ParallelOptionalJoinProcess": {
+      "displayName": "Optional join"
+    },
+    "Arcanum.Demo.Api.ParallelStartProcess": {
+      "displayName": "Parallel start",
+      "description": "Passes validated data to a graph-controlled fan-out."
+    }
+  },
+  "graph": {
+    "entry": "validate",
+    "nodes": {
+      "validate": {
+        "process": "Arcanum.Demo.Api.ValidateProcess"
+      },
+      "fork": {
+        "process": "Arcanum.Demo.Api.ParallelStartProcess"
+      },
+      "alpha": {
+        "process": "Arcanum.Demo.Api.ParallelAlphaProcess"
+      },
+      "beta": {
+        "process": "Arcanum.Demo.Api.ParallelBetaProcess"
+      },
+      "choice": {
+        "process": "Arcanum.Demo.Api.ParallelChoiceProcess"
+      },
+      "detached": {
+        "process": "Arcanum.Demo.Api.ParallelDetachedProcess"
+      },
+      "join": {
+        "process": "Arcanum.Demo.Api.ParallelOptionalJoinProcess"
+      }
+    },
+    "edges": [
+      {
+        "from": "validate",
+        "intention": "invalid",
+        "to": "@stop"
+      },
+      {
+        "from": "validate",
+        "intention": "valid",
+        "to": "fork"
+      },
+      {
+        "from": "fork",
+        "intention": "ready",
+        "to": "alpha"
+      },
+      {
+        "from": "fork",
+        "to": "choice",
+        "intention": "@spawn"
+      },
+      {
+        "from": "choice",
+        "intention": "include",
+        "to": "beta"
+      },
+      {
+        "from": "choice",
+        "intention": "skip",
+        "to": "detached"
+      },
+      {
+        "from": "alpha",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "beta",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "join",
+        "intention": "finished",
+        "to": "@complete"
+      },
+      {
+        "from": "detached",
+        "intention": "detached",
+        "to": "@complete"
+      }
+    ]
+  }
+}

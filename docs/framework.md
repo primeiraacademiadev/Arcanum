@@ -68,21 +68,21 @@ Avoid building alternative implementations of facilities that .NET, OpenTelemetr
 
 Keep activity results **transport-neutral**. HTTP endpoints translate workflow outcomes to status codes/ProblemDetails. Worker consumers translate them to acknowledgement, retry or dead-letter behavior.
 
-### V1 linear execution: JSON Capabilities and Process classes
+### JSON Capabilities and graph-controlled Process classes
 
-**Refined proposal (2026-11-07):** Declare Capabilities in versioned JSON. A `CapabilityResolver` executes the ordered list of registered Process implementations; Processes do **not** call `Next` or choose which Process executes next. This **supersedes the earlier activity-owned Next/Chain-of-Responsibility proposal** for business-flow orchestration; conventional transport middleware and around-execution behaviors may still use `Next`.
+**Refined executable prototype (2026-11-08):** Declare Capabilities as JSON directed graphs with stable node IDs referencing registered Process types. A `CapabilityResolver` schedules eligible successors asynchronously; Processes do **not** call `Next` or choose their successors. This **supersedes the earlier activity-owned Next/Chain-of-Responsibility proposal** for business-flow orchestration; conventional transport middleware and around-execution behaviors may still use `Next`.
 
 Each Process receives **resource dependencies through its constructor** (standard host DI scope) and **execution data objects as parameters to `ExecuteAsync`**, bound by an invocation-specific data resolver. These are two conceptual injection contexts, **not** necessarily two independent root `IServiceProvider` instances. Do not create duplicate DI roots as a default.
 
 Process outcomes are semantic (`completed`, `invalid`, `duplicate`, `unauthorized`, `retryable_failure`). Define short-circuit rules, exception handling, typed intermediate results and local UoW boundaries. Side-effecting Processes must not re-execute accidentally because of middleware retries.
 
-See [Capability model](capabilities.md) for the JSON, Process contract, data binding, resolution lifecycle, and future graph integration.
+See [Capability model](capabilities.md) for the current graph schema, parallel edges, Process contract, data binding and runtime limits.
 
 Candidate publish activities: authenticate producer → validate contract → check idempotency → resolve effective event/detail classification → persist in UoW → commit → return durable ingestion result. Track each activity's own log/tracing scope. Reuse only where semantic responsibilities match.
 
-## Future graph-directed workflow engine (design opportunity, **not V1**)
+## Graph-directed execution — experimental runtime (not production V1)
 
-Treat a Capability as a **versioned directed graph** of Process nodes and transitions. Each Process returns a named outcome; the **CapabilityResolver**, not a Process, chooses the next transition based on that outcome. Branches and conditional outcomes are modeled explicitly. The V1 sequential JSON array is the simplest graph.
+A Capability is a **versioned directed graph**. A graph-local `NodeId` refers to a Process type; each Process returns a single outcome. The resolver follows at most one conditional edge per business intention, plus unconditional edges marked with the system intention `@spawn`. Dynamic convergences and asynchronous node scheduling are experimentally implemented; the framework does not provide data isolation or a durable scheduler.
 
 ```mermaid
 flowchart TD
@@ -96,7 +96,7 @@ flowchart TD
 
 Separate **workflow definition** (id, version, nodes, outcomes, transitions, constraints) from **runtime** (activity instances from DI, context, execution engine) and **visual representation** (editor/diagram). A future graphical tool must not control infrastructure registration, auth middleware ordering or privileged access by arbitrary untrusted configuration.
 
-A graph compiler/validator must check: known activity types, distinct node IDs, valid outgoing outcome names, reachable terminal nodes, cycle policy, resource/side-effect boundaries, maximum execution budget and authorized graph version/publishing. Start with acyclic graphs and deterministic execution; cycles, parallel joins, durable asynchronous resumptions and distributed sagas are separate, later capabilities.
+The current validator checks trusted Process types, declared node IDs, valid edge destinations, uniqueness of conditional intention mappings, contracts, `maxSteps` and `maxDepth`. It does not provide full static dataflow/deadlock analysis, isolation of shared state, durable resumptions or distributed sagas. Cycles and parallel joins run within the configured bounds; their more complex interactions need additional validation.
 
 A graph representation can start as a **projection of the code-first workflow**, followed by validation and interpretation only when there is a compelling second use case. Preserve execution traces with workflow id/version and node transitions. Never infer security guarantees from a diagram.
 

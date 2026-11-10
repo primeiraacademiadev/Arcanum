@@ -1,0 +1,53 @@
+{
+  "name": "demo.capability-json",
+  "version": 1,
+  "displayName": "Capability JSON vNext sample",
+  "description": "The same EchoActivity template is instantiated twice with explicit typed bindings.",
+  "models": {
+    "DemoInput": {
+      "type": "Arcanum.Demo.Api.DemoInput",
+      "description": "Data received and returned by this demo."
+    }
+  },
+  "contract": {
+    "inputs": {
+      "request": { "model": "DemoInput", "source": "$" }
+    },
+    "response": { "name": "finalEcho", "model": "DemoInput" }
+  },
+  "templates": {
+    "echo": {
+      "process": "Arcanum.Demo.Api.EchoActivity",
+      "description": "A typed, stateless Process; no constructor resources to declare.",
+      "inputs": { "request": "DemoInput" },
+      "outputs": { "result": "DemoInput" }
+    }
+  },
+  "graph": {
+    "entry": "first",
+    "nodes": {
+      "first": {
+        "template": "echo",
+        "bindings": {
+          "inputs": { "request": "request" },
+          "outputs": { "result": "firstEcho" }
+        }
+      },
+      "second": {
+        "template": "echo",
+        "bindings": {
+          "inputs": { "request": "firstEcho" },
+          "outputs": { "result": "finalEcho" }
+        }
+      }
+    },
+    "edges": [
+      { "from": "first", "intention": "echoed", "to": "second" }
+    ]
+  },
+  "policies": {
+    "maxSteps": 20,
+    "maxDepth": 20,
+    "timeout": "PT30S"
+  }
+}

@@ -1,0 +1,37 @@
+name: Verify Arcanum prototype
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore Arcanum.slnx
+      - name: Build
+        run: dotnet build Arcanum.slnx --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Arcanum.slnx --configuration Release --no-build --no-restore
+      - name: Capability JSON contract synchronization smoke
+        run: |
+          dotnet run --project tools/Arcanum.ContractSync \
+            --configuration Release --no-build -- \
+            --assembly src/Arcanum.Demo.Api/bin/Release/net10.0/Arcanum.Demo.Api.dll \
+            --input src/Arcanum.Demo.Api/capabilities/demo.capability-json.json > /dev/null
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Capability viewer model and syntax tests
+        run: |
+          node --check tools/Arcanum.CapabilityViewer/wwwroot/model.mjs
+          node --check tools/Arcanum.CapabilityViewer/wwwroot/viewer.mjs
+          node --test tools/Arcanum.CapabilityViewer/tests/model.test.mjs
+      - name: HTTP smoke
+        run: bash scripts/smoke-api.sh

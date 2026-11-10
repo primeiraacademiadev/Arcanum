@@ -1,0 +1,74 @@
+namespace Arcanum.Framework;
+
+public sealed class ExecutionDataScope
+{
+    // Runtime context, not user-declared execution data or a JSON contract input.
+    public CancellationToken CancellationToken { get; }
+
+    public ExecutionDataScope(CancellationToken cancellationToken = default) =>
+        CancellationToken = cancellationToken;
+
+    private readonly record struct Entry(Type Type, object? Value);
+
+    private readonly Dictionary<string, Entry> _data = new(StringComparer.Ordinal);
+
+    public void Store(string name, Type type, object? value)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new CapabilityDataException("A data key cannot be blank.");
+        if (value is not null && !type.IsInstanceOfType(value))
+            throw new CapabilityDataException($"Value for '{name}' is not compatible with '{type.FullName}'.");
+        if (_data.TryGetValue(name, out var previous))
+        {
+            // The name alone is unique. A polymorphic replacement must respect
+            // the original declared type and must never change its contract.
+            if (!previous.Type.IsAssignableFrom(type))
+                throw new CapabilityDataException(
+                    $"The data key '{name}' is declared as '{previous.Type.FullName}', not '{type.FullName}'.");
+            _data[name] = new Entry(previous.Type, value);
+        }
+        else
+            _data[name] = new Entry(type, value);
+    }
+
+    public ExecutionDatum Read(string name)
+    {
+        if (!_data.TryGetValue(name, out var value))
+            throw new CapabilityDataException($"Missing execution data '{name}'.");
+        return new ExecutionDatum(name, value.Type, value.Value);
+    }
+
+    public object? Resolve(Type expectedType, string? name, string? parameterName = null)
+    {
+        if (name is not null)
+        {
+            if (!_data.TryGetValue(name, out var value))
+                throw new CapabilityDataException($"Missing execution data '{name}'.");
+            if (!expectedType.IsAssignableFrom(value.Type))
+                throw new CapabilityDataException(
+                    $"Data '{name}' has type '{value.Type.FullName}', not '{expectedType.FullName}'.");
+            return value.Value;
+        }
+
+
+        // Parameter name is the conventional key. A matching but incompatible key is an error.
+        if (parameterName is not null && _data.TryGetValue(parameterName, out var named))
+        {
+            if (!expectedType.IsAssignableFrom(named.Type))
+                throw new CapabilityDataException(
+                    $"Data '{parameterName}' has type '{named.Type.FullName}', not '{expectedType.FullName}'.");
+            return named.Value;
+        }
+
+        var matches = _data.Values
+            .Where(v => expectedType.IsAssignableFrom(v.Type)).ToArray();
+
+        return matches.Length switch
+        {
+            1 => matches[0].Value,
+            0 => throw new CapabilityDataException($"No execution data of type '{expectedType.FullName}'."),
+            _ => throw new CapabilityDataException(
+                $"Ambiguous data type '{expectedType.FullName}'; use a matching parameter name or FromCapabilityData.")
+        };
+    }
+}

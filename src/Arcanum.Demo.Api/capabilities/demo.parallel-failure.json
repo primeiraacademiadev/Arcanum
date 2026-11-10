@@ -1,0 +1,104 @@
+{
+  "name": "demo.parallel-failure",
+  "displayName": "Parallel failure aggregation, immediate cancellation, and logging",
+  "version": 1,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "combined",
+        "type": "System.String"
+      },
+      "@stop": {
+        "name": "validated",
+        "type": "Arcanum.Demo.Api.ValidationData"
+      }
+    }
+  },
+  "processes": {
+    "Arcanum.Demo.Api.ValidateProcess": {
+      "displayName": "Validate input"
+    },
+    "Arcanum.Demo.Api.ParallelAlphaProcess": {
+      "displayName": "Concurrent alpha"
+    },
+    "Arcanum.Demo.Api.ParallelBetaProcess": {
+      "displayName": "Concurrent beta"
+    },
+    "Arcanum.Demo.Api.ParallelJoinProcess": {
+      "displayName": "Join alpha and beta"
+    },
+    "Arcanum.Demo.Api.ParallelStartProcess": {
+      "displayName": "Parallel start",
+      "description": "Passes validated data to a graph-controlled fan-out."
+    },
+    "Arcanum.Demo.Api.ParallelFaultAlphaProcess": {
+      "displayName": "Fault alpha"
+    },
+    "Arcanum.Demo.Api.ParallelFaultBetaProcess": {
+      "displayName": "Fault beta"
+    }
+  },
+  "graph": {
+    "entry": "validate",
+    "nodes": {
+      "validate": {
+        "process": "Arcanum.Demo.Api.ValidateProcess"
+      },
+      "fork": {
+        "process": "Arcanum.Demo.Api.ParallelStartProcess"
+      },
+      "alpha": {
+        "process": "Arcanum.Demo.Api.ParallelFaultAlphaProcess"
+      },
+      "beta": {
+        "process": "Arcanum.Demo.Api.ParallelFaultBetaProcess"
+      },
+      "join": {
+        "process": "Arcanum.Demo.Api.ParallelJoinProcess"
+      }
+    },
+    "edges": [
+      {
+        "from": "validate",
+        "intention": "invalid",
+        "to": "@stop"
+      },
+      {
+        "from": "validate",
+        "intention": "valid",
+        "to": "fork"
+      },
+      {
+        "from": "fork",
+        "intention": "ready",
+        "to": "alpha"
+      },
+      {
+        "from": "fork",
+        "to": "beta",
+        "intention": "@spawn"
+      },
+      {
+        "from": "alpha",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "beta",
+        "intention": "done",
+        "to": "join"
+      },
+      {
+        "from": "join",
+        "intention": "finished",
+        "to": "@complete"
+      }
+    ]
+  }
+}

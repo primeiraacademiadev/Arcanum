@@ -1,0 +1,41 @@
+{
+  "name": "demo.activity",
+  "displayName": "Atividade declarada no grafo sem convenção de classe",
+  "description": "Demonstra que o JSON escolhe um tipo com qualquer nome e sem atributo.",
+  "version": 1,
+  "contract": {
+    "inputs": {
+      "request": {
+        "type": "Arcanum.Demo.Api.DemoInput",
+        "source": "$"
+      }
+    },
+    "responses": {
+      "@complete": {
+        "name": "echo",
+        "type": "Arcanum.Demo.Api.DemoInput"
+      }
+    }
+  },
+  "processes": {
+    "Arcanum.Demo.Api.EchoActivity": {
+      "displayName": "Ecoar pedido",
+      "description": "Devolve o mesmo objeto de entrada."
+    }
+  },
+  "graph": {
+    "entry": "echo",
+    "nodes": {
+      "echo": {
+        "process": "Arcanum.Demo.Api.EchoActivity"
+      }
+    },
+    "edges": [
+      {
+        "from": "echo",
+        "intention": "echoed",
+        "to": "@complete"
+      }
+    ]
+  }
+}
