@@ -48,8 +48,12 @@ public sealed class DataResolver
         return item.Value;
     }
 
-    public void Store(ExecutionDataScope data, string name, IProcessResult result)
+    public void Store(
+        ExecutionDataScope data, string name, IProcessResult result, Type? declaredType = null)
     {
-        data.Store(name, result.DataType, result.Data);
+        if (declaredType is not null && !declaredType.IsAssignableFrom(result.DataType))
+            throw new CapabilityDataException(
+                $"Result type '{result.DataType.FullName}' is incompatible with '{declaredType.FullName}'.");
+        data.Store(name, declaredType ?? result.DataType, result.Data);
     }
 }

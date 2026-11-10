@@ -35,9 +35,21 @@ public sealed class ProcessCatalog
         _descriptors.TryGetValue(fullName, out var value)
             ? value
             : throw new CapabilityDefinitionException($"Unknown Process '{fullName}'.");
-    public Type GetDataType(string fullName) =>
-        _dataTypes.TryGetValue(fullName, out var type)
-            ? type
-            : throw new CapabilityDefinitionException(
-                $"Unknown contract data type '{fullName}' (not an Execute argument or result).");
+    public Type GetDataType(string fullName)
+    {
+        if (_dataTypes.TryGetValue(fullName, out var direct))
+            return direct;
+
+        // Models may denote an interface/base type which appears only as a
+        // declared result contract. Resolve it solely from trusted Process
+        // assemblies, never by scanning arbitrary loaded application types.
+        var matches = _descriptors.Values
+            .Select(descriptor => descriptor.ProcessType.Assembly)
+            .Distinct()
+            .Select(assembly => assembly.GetType(fullName, throwOnError: false))
+            .Where(type => type is not null).Distinct().ToArray();
+        return matches.Length == 1 ? matches[0]! :
+            throw new CapabilityDefinitionException(
+                $"Unknown or ambiguous contract Model CLR type '{fullName}'.");
+    }
 }

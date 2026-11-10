@@ -172,7 +172,12 @@ public sealed class CapabilityResolver(
                     : nodeConfig.SaveResultAs ??
                       definition.Processes[nodeConfig.Process].SaveResultAs ??
                       descriptorOfResult.ReturnName!;
-                dataResolver.Store(data, resultName, result);
+                // The Model's declared type, potentially an interface, owns the
+                // name's contract. Never narrow it to the first concrete result:
+                // later Processes can replace the value with another subtype.
+                var outputType = nodeConfig.Template is null ? null : processes.GetDataType(
+                    definition.Models[definition.Templates[nodeConfig.Template].Outputs.Single().Value].Type);
+                dataResolver.Store(data, resultName, result, outputType);
 
                 var conditionalEdges = definition.Graph.Edges
                     .Where(edge => edge.From == completed.NodeId &&

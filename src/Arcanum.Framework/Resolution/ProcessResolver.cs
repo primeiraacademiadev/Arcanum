@@ -7,6 +7,7 @@ namespace Arcanum.Framework;
 public sealed class ProcessResolver(ProcessCatalog catalog)
 {
     public ProcessDescriptor GetDescriptor(string fullName) => catalog.Get(fullName);
+    public Type GetDataType(string fullName) => catalog.GetDataType(fullName);
 
     public object Resolve(ProcessDescriptor descriptor, IServiceProvider resourceScope) =>
         resourceScope.GetRequiredService(descriptor.ProcessType);
