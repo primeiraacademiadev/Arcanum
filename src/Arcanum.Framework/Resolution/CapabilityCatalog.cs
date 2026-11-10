@@ -75,6 +75,12 @@ public sealed class CapabilityCatalog
             definition.Version <= 0)
             throw new CapabilityDefinitionException("Capability requires name, displayName and positive version.");
 
+        if (definition.Templates is { Count: > 0 })
+        {
+            ValidateNext(definition, catalog);
+            return;
+        }
+
         if (definition.MaxSteps is <= 0)
             throw new CapabilityDefinitionException($"Capability '{definition.Name}' maxSteps must be positive.");
         if (definition.MaxDepth is <= 0)
@@ -149,6 +155,208 @@ public sealed class CapabilityCatalog
         }
 
         ValidateContract(definition, catalog);
+    }
+
+
+    /// <summary>
+    /// Compile the vNext declarative contract from trusted CLR Process signatures.
+    /// It fills runtime-only Process/output bindings while rejecting drift at startup.
+    /// </summary>
+    private static void ValidateNext(CapabilityDefinition definition, ProcessCatalog catalog)
+    {
+        if (definition.Models is null || definition.Models.Count == 0 ||
+            definition.Graph is null || definition.Templates is null)
+            throw new CapabilityDefinitionException("Capability JSON vNext requires models, templates and graph.");
+        if (definition.Policies is null)
+            throw new CapabilityDefinitionException("Capability policies cannot be null.");
+        if (definition.Policies.MaxSteps is <= 0 || definition.Policies.MaxDepth is <= 0)
+            throw new CapabilityDefinitionException("Capability policies maxSteps/maxDepth must be positive.");
+        if (definition.Policies.Timeout is { } duration)
+        {
+            try
+            {
+                if (System.Xml.XmlConvert.ToTimeSpan(duration) <= TimeSpan.Zero)
+                    throw new CapabilityDefinitionException("Capability timeout must be positive.");
+            }
+            catch (FormatException)
+            {
+                throw new CapabilityDefinitionException(
+                    $"Capability '{definition.Name}' has an invalid ISO 8601 timeout.");
+            }
+        }
+
+        Type ModelType(string alias)
+        {
+            if (!definition.Models.TryGetValue(alias, out var model) ||
+                model is null || string.IsNullOrWhiteSpace(model.Type))
+                throw new CapabilityDefinitionException($"Unknown or invalid Model '{alias}'.");
+            return catalog.GetDataType(model.Type);
+        }
+
+        foreach (var (alias, model) in definition.Models)
+        {
+            if (string.IsNullOrWhiteSpace(alias) || model is null ||
+                string.IsNullOrWhiteSpace(model.Type))
+                throw new CapabilityDefinitionException($"Invalid Model '{alias}'.");
+            _ = ModelType(alias);
+        }
+
+        if (definition.Graph.Nodes is null || definition.Graph.Nodes.Count == 0 ||
+            !definition.Graph.Nodes.ContainsKey(definition.Graph.Entry) ||
+            definition.Graph.Edges is null)
+            throw new CapabilityDefinitionException("Capability graph requires entry, nodes and edges.");
+
+        foreach (var (id, template) in definition.Templates)
+        {
+            if (string.IsNullOrWhiteSpace(id) || template is null ||
+                string.IsNullOrWhiteSpace(template.Process))
+                throw new CapabilityDefinitionException($"Invalid NodeTemplate '{id}'.");
+            var descriptor = catalog.Get(template.Process);
+            if (template.Inputs is null || template.Outputs is null || template.Resources is null)
+                throw new CapabilityDefinitionException($"NodeTemplate '{id}' has missing contracts.");
+
+            var functional = descriptor.Parameters.Where(p => !p.IsCancellationToken).ToArray();
+            if (functional.Length != template.Inputs.Count)
+                throw new CapabilityDefinitionException(
+                    $"NodeTemplate '{id}' input contract differs from Execute signature.");
+            foreach (var parameter in functional)
+            {
+                if (!template.Inputs.TryGetValue(parameter.ParameterName, out var modelName) ||
+                    !parameter.ParameterType.IsAssignableFrom(ModelType(modelName)))
+                    throw new CapabilityDefinitionException(
+                        $"NodeTemplate '{id}' parameter '{parameter.ParameterName}' differs from CLR signature.");
+            }
+
+            if (template.Outputs.Count != 1 ||
+                !ModelType(template.Outputs.Single().Value).IsAssignableFrom(descriptor.ReturnDataType))
+                throw new CapabilityDefinitionException(
+                    $"NodeTemplate '{id}' output differs from ProcessResult<T>.");
+
+            var constructorParameters = descriptor.ProcessType.GetConstructors()
+                .SelectMany(ctor => ctor.GetParameters()).ToArray();
+            foreach (var (name, resourceType) in template.Resources)
+                if (!constructorParameters.Any(parameter =>
+                    parameter.Name == name && parameter.ParameterType.FullName == resourceType))
+                    throw new CapabilityDefinitionException(
+                        $"NodeTemplate '{id}' resource '{name}' differs from constructor signature.");
+            // Resources omitted from JSON (for example ILogger<T>) are resolved by Host DI.
+        }
+
+        var available = new Dictionary<string, Type>(StringComparer.Ordinal);
+        void Register(string name, Type type)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new CapabilityDefinitionException("Execution data variable name must not be blank.");
+            if (available.TryGetValue(name, out var existing) &&
+                !existing.IsAssignableFrom(type) && !type.IsAssignableFrom(existing))
+                throw new CapabilityDefinitionException(
+                    $"Execution data variable '{name}' has incompatible contracts '{existing}' and '{type}'.");
+            available.TryAdd(name, type);
+        }
+
+        if (definition.Contract is null || definition.Contract.Inputs is null ||
+            definition.Contract.Inputs.Count == 0 || definition.Contract.Response is null)
+            throw new CapabilityDefinitionException(
+                "Capability JSON vNext requires contract.inputs and a single contract.response.");
+
+        foreach (var (name, input) in definition.Contract.Inputs)
+        {
+            if (input is null || string.IsNullOrWhiteSpace(input.Model))
+                throw new CapabilityDefinitionException($"Input '{name}' requires a Model.");
+            var type = ModelType(input.Model);
+            input.Type = type.FullName!;
+            if (input.Source is null && input.Default.ValueKind == JsonValueKind.Undefined)
+                input.Source = "$";
+            var fromPayload = input.Source is not null;
+            var fromDefault = input.Default.ValueKind != JsonValueKind.Undefined;
+            if (fromPayload == fromDefault ||
+                (fromPayload && !CapabilityContractResolver.IsValidSource(input.Source!)))
+                throw new CapabilityDefinitionException($"Input '{name}' has invalid source/default.");
+            if (fromDefault)
+            {
+                try
+                {
+                    if (input.Default.Deserialize(type, CapabilityContractResolver.JsonOptions) is null)
+                        throw new CapabilityDefinitionException($"Input '{name}' has a null default.");
+                }
+                catch (JsonException e)
+                {
+                    throw new CapabilityDefinitionException(
+                        $"Input '{name}' has invalid default data: {e.Message}");
+                }
+            }
+            Register(name, type);
+        }
+
+        foreach (var (id, node) in definition.Graph.Nodes)
+        {
+            if (string.IsNullOrWhiteSpace(id) || id.StartsWith('@') || node is null ||
+                string.IsNullOrWhiteSpace(node.Template) ||
+                !definition.Templates.TryGetValue(node.Template, out var template) ||
+                node.Bindings is null || node.Bindings.Inputs is null ||
+                node.Bindings.Outputs is null)
+                throw new CapabilityDefinitionException($"Node '{id}' requires a valid template and bindings.");
+
+            var descriptor = catalog.Get(template.Process);
+            if (node.Bindings.Inputs.Count != template.Inputs.Count ||
+                node.Bindings.Outputs.Count != 1 ||
+                node.Bindings.Outputs.Keys.Single() != template.Outputs.Keys.Single())
+                throw new CapabilityDefinitionException($"Node '{id}' bindings differ from template.");
+            foreach (var (parameter, modelName) in template.Inputs)
+            {
+                if (!node.Bindings.Inputs.TryGetValue(parameter, out var dataName) ||
+                    string.IsNullOrWhiteSpace(dataName))
+                    throw new CapabilityDefinitionException($"Node '{id}' is missing binding '{parameter}'.");
+                // The variable might be supplied later; type compatibility is checked
+                // against all known declarations after collecting graph outputs.
+            }
+
+            var output = node.Bindings.Outputs.Single();
+            Register(output.Value, ModelType(template.Outputs[output.Key]));
+            node.Process = template.Process;
+            node.SaveResultAs = output.Value;
+        }
+
+        foreach (var (id, node) in definition.Graph.Nodes)
+        {
+            var template = definition.Templates[node.Template!];
+            foreach (var (parameter, modelName) in template.Inputs)
+            {
+                var name = node.Bindings.Inputs[parameter];
+                if (!available.TryGetValue(name, out var actual) ||
+                    !ModelType(modelName).IsAssignableFrom(actual))
+                    throw new CapabilityDefinitionException(
+                        $"Node '{id}' input '{parameter}' references missing or incompatible data '{name}'.");
+            }
+        }
+
+        var conditional = new HashSet<(string Node, string Intention)>();
+        foreach (var edge in definition.Graph.Edges)
+        {
+            if (edge is null || !definition.Graph.Nodes.ContainsKey(edge.From) ||
+                string.IsNullOrWhiteSpace(edge.To) ||
+                !definition.Graph.Nodes.ContainsKey(edge.To) ||
+                string.IsNullOrWhiteSpace(edge.Intention))
+                throw new CapabilityDefinitionException("Invalid vNext edge source, destination or intention.");
+            if (edge.Intention != CapabilityGraph.SpawnIntention)
+            {
+                if (edge.Intention.StartsWith('@') ||
+                    !conditional.Add((edge.From, edge.Intention)))
+                    throw new CapabilityDefinitionException(
+                        $"Invalid or duplicate functional intention '{edge.Intention}' on '{edge.From}'.");
+            }
+        }
+
+        var response = definition.Contract.Response;
+        if (string.IsNullOrWhiteSpace(response.Name) || string.IsNullOrWhiteSpace(response.Model))
+            throw new CapabilityDefinitionException("Implicit response requires name and model.");
+        var responseType = ModelType(response.Model);
+        if (!available.TryGetValue(response.Name, out var declared) ||
+            !responseType.IsAssignableFrom(declared))
+            throw new CapabilityDefinitionException(
+                $"Response variable '{response.Name}' is not produced with the declared Model.");
+        response.Type = responseType.FullName!;
+        definition.Contract.Responses["@complete"] = response;
     }
 
     private static void ValidateContract(CapabilityDefinition definition, ProcessCatalog catalog)
