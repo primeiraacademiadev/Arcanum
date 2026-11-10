@@ -14,7 +14,8 @@ public sealed class CapabilityResolver(
     ProcessResolver processes,
     DataResolver dataResolver,
     IOptions<CapabilityOptions> options,
-    ILogger<CapabilityResolver> logger)
+    ILogger<CapabilityResolver> logger,
+    ResponseResolver? responseResolver = null)
 {
     private static readonly ActivitySource Traces = new("Arcanum.Framework.Capabilities");
 
@@ -60,9 +61,13 @@ public sealed class CapabilityResolver(
         Action<Exception, string?, Guid?> logException)
     {
         var definition = capabilities.Get(name);
-        var maxSteps = definition.MaxSteps ?? options.Value.DefaultMaxSteps;
-        var maxDepth = definition.MaxDepth ?? options.Value.DefaultMaxDepth;
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var maxSteps = definition.Policies?.MaxSteps ?? definition.MaxSteps ?? options.Value.DefaultMaxSteps;
+        var maxDepth = definition.Policies?.MaxDepth ?? definition.MaxDepth ?? options.Value.DefaultMaxDepth;
+        var timeout = definition.Policies?.Timeout is { } timeoutIso
+            ? System.Xml.XmlConvert.ToTimeSpan(timeoutIso)
+            : options.Value.DefaultTimeout;
+        using var deadline = new CancellationTokenSource(timeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         // CancellationToken is held in runtime context, not in business data entries.
         var data = dataResolver.CreateScope(initialData, linked.Token);
         var executionId = Guid.NewGuid();
@@ -70,6 +75,7 @@ public sealed class CapabilityResolver(
         var pending = new Dictionary<string, List<Arrival>>(StringComparer.Ordinal);
         var running = new List<RunningNode>();
         var terminals = new List<TerminalArrival>();
+        var leafIntentions = new List<string>();
         var waiting = new HashSet<string>(StringComparer.Ordinal);
         var steps = 0;
         Exception? firstProcessFailure = null;
@@ -115,7 +121,9 @@ public sealed class CapabilityResolver(
                     pending.Remove(nodeId);
                     var node = definition.Graph.Nodes[nodeId];
                     var descriptor = processes.GetDescriptor(node.Process);
-                    var args = dataResolver.Bind(descriptor, data);
+                    var args = node.Template is not null
+                        ? dataResolver.Bind(descriptor, data, node.Bindings.Inputs)
+                        : dataResolver.Bind(descriptor, data);
                     var invocationId = Guid.NewGuid();
 
                     if (waiting.Remove(nodeId))
@@ -164,11 +172,16 @@ public sealed class CapabilityResolver(
                 dataResolver.Store(data, nodeConfig.SaveResultAs ??
                     metadata.SaveResultAs ?? descriptorOfResult.ReturnName!, result);
 
-                if (!definition.Graph.Edges.Any(edge =>
-                    edge.From == completed.NodeId && edge.Intention == result.Intention))
+                var conditionalEdges = definition.Graph.Edges
+                    .Where(edge => edge.From == completed.NodeId &&
+                        edge.Intention != CapabilityGraph.SpawnIntention).ToArray();
+                if (conditionalEdges.Length > 0 &&
+                    !conditionalEdges.Any(edge => edge.Intention == result.Intention))
                     throw new CapabilityTransitionException(
                         $"Node '{completed.NodeId}' returned unmapped intention '{result.Intention}'.");
                 var targets = definition.Graph.Matching(completed.NodeId, result.Intention);
+                if (conditionalEdges.Length == 0)
+                    leafIntentions.Add(result.Intention);
 
                 // Publish ALL selected successors before re-evaluating pending joins.
                 // @spawn is a system intention evaluated by the scheduler, not the Process.
@@ -185,6 +198,25 @@ public sealed class CapabilityResolver(
             }
 
             linked.Token.ThrowIfCancellationRequested();
+            if (definition.Templates.Count > 0)
+            {
+                if (terminals.Count != 0)
+                    throw new CapabilityTransitionException(
+                        "Explicit terminal responses are not supported in Capability JSON vNext yet.");
+                var leafOutcomes = leafIntentions.Distinct(StringComparer.Ordinal).ToArray();
+                var implicitIntention = leafOutcomes.Length == 1 ? leafOutcomes[0] : null;
+                var implicitResponse = (responseResolver ?? new ResponseResolver(dataResolver))
+                    .Resolve(definition, data, "@complete");
+                trail.Add("CapabilityCompleted", intention: implicitIntention,
+                    relatedNodeId: "@complete", detail: "Implicit response from Data Context");
+                return new CapabilityExecutionResult(
+                    name, definition.Version, "@complete", implicitIntention, steps, implicitResponse)
+                {
+                    ExecutionId = executionId,
+                    Breadcrumbs = trail.Snapshot()
+                };
+            }
+
             if (terminals.Count == 0)
                 throw new CapabilityTransitionException("Capability completed without a terminal edge.");
 
@@ -198,9 +230,8 @@ public sealed class CapabilityResolver(
             // A Capability has no single terminal intention when independent
             // branches completed with different intentions. The trail retains both.
             var finalIntention = terminalIntentions.Length == 1 ? terminalIntentions[0] : null;
-            var output = definition.Contract.Responses.TryGetValue(first.Terminal, out var response)
-                ? dataResolver.ResolveOutput(data, response)
-                : terminals.Count == 1 ? first.Data : null;
+            var output = (responseResolver ?? new ResponseResolver(dataResolver))
+                .Resolve(definition, data, first.Terminal, first.Data);
             trail.Add("CapabilityCompleted", intention: finalIntention, relatedNodeId: first.Terminal,
                 detail: terminalIntentions.Length > 1
                     ? $"Independent terminal intentions: {string.Join(", ", terminalIntentions)}"
@@ -228,6 +259,9 @@ public sealed class CapabilityResolver(
                 // If Task.WhenAll raises a distinct error, never discard it.
                 logException(remaining, null, null);
             }
+
+            if (deadline.IsCancellationRequested)
+                trail.Add("Timeout", detail: $"Global deadline {timeout} expired.");
 
             // A Process fault may have cancelled the scheduler before its own
             // Task was observed. Preserve the real fault instead of replacing
