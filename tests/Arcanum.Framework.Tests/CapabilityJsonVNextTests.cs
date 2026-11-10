@@ -66,6 +66,20 @@ public sealed class CapabilityJsonVNextTests
     }
 
     [Fact]
+    public async Task Interface_model_survives_replacement_by_another_concrete_Process_result()
+    {
+        using var provider = Provider();
+        using var scope = provider.CreateScope();
+        using var payload = JsonDocument.Parse("""{"value":"input"}""");
+
+        var result = await provider.GetRequiredService<CapabilityJsonDispatcher>().ExecuteAsync(
+            "demo.capability-json-polymorphism", payload.RootElement, scope.ServiceProvider);
+        Assert.Equal(3, result.Steps);
+        Assert.Equal("supplier", Assert.IsType<string>(result.Data));
+        Assert.Equal("summarized", result.Intention);
+    }
+
+    [Fact]
     public void CLR_contract_is_authoritative_and_template_drift_fails_during_startup()
     {
         using var provider = Provider();

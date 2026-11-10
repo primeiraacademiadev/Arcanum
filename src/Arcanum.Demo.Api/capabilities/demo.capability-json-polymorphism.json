@@ -1,0 +1,111 @@
+{
+  "name": "demo.capability-json-polymorphism",
+  "version": 1,
+  "displayName": "Polymorphic Model overwrite",
+  "description": "Two different result CLR subtypes replace a context variable declared by interface Model.",
+  "models": {
+    "DemoInput": {
+      "type": "Arcanum.Demo.Api.DemoInput"
+    },
+    "Value": {
+      "type": "Arcanum.Demo.Api.IPolymorphicValue"
+    },
+    "String": {
+      "type": "System.String"
+    }
+  },
+  "contract": {
+    "inputs": {
+      "request": {
+        "model": "DemoInput",
+        "source": "$"
+      }
+    },
+    "response": {
+      "name": "summary",
+      "model": "String"
+    }
+  },
+  "templates": {
+    "first": {
+      "process": "Arcanum.Demo.Api.FirstValueProcess",
+      "inputs": {
+        "request": "DemoInput"
+      },
+      "outputs": {
+        "result": "Value"
+      }
+    },
+    "second": {
+      "process": "Arcanum.Demo.Api.SecondValueProcess",
+      "inputs": {
+        "request": "DemoInput"
+      },
+      "outputs": {
+        "result": "Value"
+      }
+    },
+    "summary": {
+      "process": "Arcanum.Demo.Api.ValueSummaryProcess",
+      "inputs": {
+        "value": "Value"
+      },
+      "outputs": {
+        "result": "String"
+      }
+    }
+  },
+  "graph": {
+    "entry": "first",
+    "nodes": {
+      "first": {
+        "template": "first",
+        "bindings": {
+          "inputs": {
+            "request": "request"
+          },
+          "outputs": {
+            "result": "entity"
+          }
+        }
+      },
+      "second": {
+        "template": "second",
+        "bindings": {
+          "inputs": {
+            "request": "request"
+          },
+          "outputs": {
+            "result": "entity"
+          }
+        }
+      },
+      "summary": {
+        "template": "summary",
+        "bindings": {
+          "inputs": {
+            "value": "entity"
+          },
+          "outputs": {
+            "result": "summary"
+          }
+        }
+      }
+    },
+    "edges": [
+      {
+        "from": "first",
+        "intention": "first",
+        "to": "second"
+      },
+      {
+        "from": "second",
+        "intention": "second",
+        "to": "summary"
+      }
+    ]
+  },
+  "policies": {
+    "timeout": "PT30S"
+  }
+}
