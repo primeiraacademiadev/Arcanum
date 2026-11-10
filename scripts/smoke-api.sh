@@ -104,5 +104,35 @@ status="$(curl --silent --show-error \
   "$url/capabilities/demo.nested/execute")"
 [ "$status" = "400" ] || { cat "$response_file"; exit 1; }
 
-echo "HTTP smoke succeeded: valid, invalid, loop, arbitrary Process name, nested contract, invalid contract."
+curl --silent --show-error --fail \
+  --header 'Content-Type: application/json' \
+  --data '{"value":"vnext"}' \
+  "$url/capabilities/demo.capability-json/execute" > "$response_file"
+
+python3 - "$response_file" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    result = json.load(stream)
+assert result["terminal"] == "@complete", result
+assert result["steps"] == 2, result
+assert result["data"]["value"] == "vnext", result
+PY
+
+curl --silent --show-error --fail \
+  --header 'Content-Type: application/json' \
+  --data '{"value":" AbC "}' \
+  "$url/capabilities/demo.capability-json-parallel/execute" > "$response_file"
+
+python3 - "$response_file" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    result = json.load(stream)
+assert result["terminal"] == "@complete", result
+assert result["steps"] == 6, result
+assert result["data"] == "ABC|abc", result
+PY
+
+echo "HTTP smoke succeeded: legacy valid/invalid/loop/nested, vNext templates and parallel join."
 

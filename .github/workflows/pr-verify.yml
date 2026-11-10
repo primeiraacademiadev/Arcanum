@@ -19,5 +19,11 @@ jobs:
         run: dotnet build Arcanum.slnx --configuration Release --no-restore
       - name: Test
         run: dotnet test Arcanum.slnx --configuration Release --no-build --no-restore
+      - name: Capability JSON contract synchronization smoke
+        run: |
+          dotnet run --project tools/Arcanum.ContractSync \
+            --configuration Release --no-build -- \
+            --assembly src/Arcanum.Demo.Api/bin/Release/net10.0/Arcanum.Demo.Api.dll \
+            --input src/Arcanum.Demo.Api/capabilities/demo.capability-json.json > /dev/null
       - name: HTTP smoke
         run: bash scripts/smoke-api.sh
