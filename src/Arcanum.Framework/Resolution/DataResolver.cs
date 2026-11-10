@@ -38,8 +38,11 @@ public sealed class DataResolver
     public object? ResolveOutput(ExecutionDataScope data, CapabilityResponseContract response)
     {
         var item = data.Read(response.Name);
-        if (item.DataType.FullName != response.Type &&
-            !(Type.GetType(response.Type, throwOnError: false)?.IsAssignableFrom(item.DataType) ?? false))
+        var expectedType = Type.GetType(response.Type, throwOnError: false)
+            ?? AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType(response.Type, throwOnError: false))
+                .FirstOrDefault(type => type is not null);
+        if (expectedType is null || !expectedType.IsAssignableFrom(item.DataType))
             throw new CapabilityDataException(
                 $"Contract response '{response.Name}' does not match declared type '{response.Type}'.");
         return item.Value;

@@ -178,12 +178,17 @@ public sealed class CapabilityResolver(
                 var conditionalEdges = definition.Graph.Edges
                     .Where(edge => edge.From == completed.NodeId &&
                         edge.Intention != CapabilityGraph.SpawnIntention).ToArray();
-                if (conditionalEdges.Length > 0 &&
-                    !conditionalEdges.Any(edge => edge.Intention == result.Intention))
+                var hasBusinessSuccessor = conditionalEdges.Any(edge =>
+                    edge.Intention == result.Intention);
+                // Legacy graphs require exhaustive functional mapping. In vNext,
+                // an unmatched business intention is an ordinary leaf and never
+                // suppresses unconditional @spawn edges.
+                if (conditionalEdges.Length > 0 && !hasBusinessSuccessor &&
+                    nodeConfig.Template is null)
                     throw new CapabilityTransitionException(
                         $"Node '{completed.NodeId}' returned unmapped intention '{result.Intention}'.");
                 var targets = definition.Graph.Matching(completed.NodeId, result.Intention);
-                if (conditionalEdges.Length == 0)
+                if (!hasBusinessSuccessor)
                     leafIntentions.Add(result.Intention);
 
                 // Publish ALL selected successors before re-evaluating pending joins.
