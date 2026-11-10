@@ -7,6 +7,13 @@ log_file="$(mktemp)"
 response_file="$(mktemp)"
 
 cleanup() {
+  local result=$?
+  if [ "$result" -ne 0 ]; then
+    echo "--- Demo API log (failure diagnostics) ---" >&2
+    tail -n 90 "$log_file" >&2
+    echo "--- Copied viewer assets ---" >&2
+    find src/Arcanum.Demo.Api/bin/Release/net10.0 -iname '*viewer*' -o -name 'index.html' -o -name 'model.mjs' >&2
+  fi
   kill "$app_pid" 2>/dev/null || true
   wait "$app_pid" 2>/dev/null || true
   rm -f "$log_file" "$response_file"
