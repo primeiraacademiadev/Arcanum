@@ -21,7 +21,17 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 // Local read-only Capability Atlas. No arbitrary filesystem route is exposed.
 // Browser-selected folders are read in the browser, without uploading files.
-app.MapGet("/viewer", () => Results.Redirect("/viewer/"));
+// Route matching ignores a trailing slash; normalize before endpoint selection
+// to avoid two ambiguous Minimal API endpoints for /viewer and /viewer/.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path == "/viewer")
+    {
+        context.Response.Redirect("/viewer/");
+        return;
+    }
+    await next();
+});
 app.MapGet("/viewer/", () =>
     Results.File(Path.Combine(AppContext.BaseDirectory, "viewer", "index.html"), "text/html; charset=utf-8"));
 app.MapGet("/viewer/{asset}", (string asset) =>
