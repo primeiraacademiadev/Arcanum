@@ -39,7 +39,7 @@ public sealed class CapabilityJsonVNextTests
         Assert.Equal(2, result.Steps);
         Assert.Equal("reuse", Assert.IsType<DemoInput>(result.Data).Value);
         var starts = result.Breadcrumbs.Where(b => b.Kind == "Started").ToArray();
-        Assert.Equal(["first", "second"], starts.Select(x => x.NodeId).ToArray());
+        Assert.Equal(new[] { "first", "second" }, starts.Select(x => x.NodeId!).ToArray());
         Assert.NotEqual(starts[0].NodeExecutionId, starts[1].NodeExecutionId);
     }
 
