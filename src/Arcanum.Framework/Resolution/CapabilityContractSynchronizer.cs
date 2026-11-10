@@ -21,14 +21,33 @@ public sealed class CapabilityContractSynchronizer(ProcessCatalog processes)
             ?? throw new CapabilityDefinitionException("Capability JSON synchronizer requires templates.");
         var changes = new List<string>();
 
-        bool Matches(string? alias, Type type) =>
-            alias is not null && models[alias] is JsonObject model &&
-            (string?)model["type"]?.GetValue<string>() == type.FullName;
+        Type? ModelType(string? alias)
+        {
+            if (alias is null || models[alias] is not JsonObject model ||
+                model["type"] is not JsonNode declared)
+                return null;
+            try
+            {
+                return processes.GetDataType(declared.GetValue<string>());
+            }
+            catch (CapabilityDefinitionException)
+            {
+                return null;
+            }
+        }
+
+        // Input: a declared concrete Model may satisfy a base/interface
+        // Execute parameter. Output: a declared interface/base Model may
+        // describe the concrete result returned by the CLR Process.
+        bool MatchesInput(string? alias, Type parameterType) =>
+            ModelType(alias) is { } declared && parameterType.IsAssignableFrom(declared);
+        bool MatchesOutput(string? alias, Type resultType) =>
+            ModelType(alias) is { } declared && declared.IsAssignableFrom(resultType);
 
         string FindOrCreateModel(Type type)
         {
             foreach (var (alias, _) in models)
-                if (Matches(alias, type))
+                if (ModelType(alias) == type)
                     return alias;
             var prefix = type.Name.Replace('`', '_');
             var name = prefix;
@@ -52,7 +71,7 @@ public sealed class CapabilityContractSynchronizer(ProcessCatalog processes)
             foreach (var parameter in descriptor.Parameters.Where(p => !p.IsCancellationToken))
             {
                 var previous = oldInputs[parameter.ParameterName]?.GetValue<string>();
-                proposedInputs[parameter.ParameterName] = Matches(previous, parameter.ParameterType)
+                proposedInputs[parameter.ParameterName] = MatchesInput(previous, parameter.ParameterType)
                     ? previous : FindOrCreateModel(parameter.ParameterType);
             }
             if (!JsonNode.DeepEquals(oldInputs, proposedInputs))
@@ -64,7 +83,7 @@ public sealed class CapabilityContractSynchronizer(ProcessCatalog processes)
             var oldOutputs = template["outputs"] as JsonObject ?? new JsonObject();
             var resultName = oldOutputs.Count == 1 ? oldOutputs.First().Key : "result";
             var previousResultModel = oldOutputs[resultName]?.GetValue<string>();
-            var outputModel = Matches(previousResultModel, descriptor.ReturnDataType)
+            var outputModel = MatchesOutput(previousResultModel, descriptor.ReturnDataType)
                 ? previousResultModel : FindOrCreateModel(descriptor.ReturnDataType);
             var proposedOutputs = new JsonObject { [resultName] = outputModel };
             if (!JsonNode.DeepEquals(oldOutputs, proposedOutputs))

@@ -155,6 +155,17 @@ public sealed class CapabilityJsonVNextTests
     }
 
     [Fact]
+    public void Synchronizer_preserves_intentional_interface_output_models()
+    {
+        using var provider = Provider();
+        var original = File.ReadAllText(Path.Combine(AppContext.BaseDirectory,
+            "capabilities", "demo.capability-json-polymorphism.json"));
+        var report = new CapabilityContractSynchronizer(
+            provider.GetRequiredService<ProcessCatalog>()).Analyze(original);
+        Assert.False(report.HasDrift);
+    }
+
+    [Fact]
     public void Input_model_and_response_type_are_checked_against_descriptors()
     {
         using var provider = Provider();
