@@ -134,5 +134,26 @@ assert result["steps"] == 6, result
 assert result["data"] == "ABC|abc", result
 PY
 
-echo "HTTP smoke succeeded: legacy valid/invalid/loop/nested, vNext templates and parallel join."
+# Verify Atlas files are served from the Demo API and only show trusted
+# Process constructor/resource metadata, without requiring directory uploads.
+curl --silent --show-error --fail "$url/viewer/" > "$response_file"
+grep -q "Capability Atlas" "$response_file"
+curl --silent --show-error --fail "$url/viewer/model.mjs" > "$response_file"
+grep -q "parseCapability" "$response_file"
+curl --silent --show-error --fail "$url/viewer/api/snapshot" > "$response_file"
+
+python3 - "$response_file" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    snapshot = json.load(stream)
+names = {item["name"] for item in snapshot["files"]}
+assert "demo.capability-json.json" in names, names
+assert "demo.parallel.json" in names, names
+contract = snapshot["processContracts"]["Arcanum.Demo.Api.ValidateProcess"]
+assert any(item["name"] == "probe" for item in contract["resources"]), contract
+assert all("ILogger" not in item["type"] for item in contract["resources"]), contract
+PY
+
+echo "HTTP smoke succeeded: legacy/vNext Capabilities, Atlas UI and DI metadata."
 
