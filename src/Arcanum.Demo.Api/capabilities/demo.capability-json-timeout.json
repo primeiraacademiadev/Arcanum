@@ -1,0 +1,31 @@
+{
+  "name": "demo.capability-json-timeout",
+  "version": 1,
+  "displayName": "Capability JSON global deadline",
+  "models": { "DemoInput": { "type": "Arcanum.Demo.Api.DemoInput" } },
+  "contract": {
+    "inputs": { "request": { "model": "DemoInput", "source": "$" } },
+    "response": { "name": "finalEcho", "model": "DemoInput" }
+  },
+  "templates": {
+    "slow": {
+      "process": "Arcanum.Demo.Api.DelayEchoProcess",
+      "inputs": { "request": "DemoInput" },
+      "outputs": { "result": "DemoInput" }
+    }
+  },
+  "graph": {
+    "entry": "wait",
+    "nodes": {
+      "wait": {
+        "template": "slow",
+        "bindings": {
+          "inputs": { "request": "request" },
+          "outputs": { "result": "finalEcho" }
+        }
+      }
+    },
+    "edges": []
+  },
+  "policies": { "timeout": "PT0.02S" }
+}
